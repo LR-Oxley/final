@@ -1,0 +1,1270 @@
+---
+title: "Code for first PhD Chapter"
+subtitle: "Code ALD, land cover dataset, calculating thawed N, N fertilisation, N2O-N emission estimation"
+author: "Lara Oxley"
+date: "2025-04-16"
+output: html_document
+---
+
+## Plotting Active layer depth increase, relative to preindustrial (1880-1900)
+
+
+```{r}
+## plot active layer depth increase
+library(ggplot2)
+library(dplyr)
+library(zoo)
+
+library(tidyr)
+
+setwd("/Users/laraoxley/Desktop/data/CMIP6_corr/N_asymptotic")
+df<- read.csv("ALD_all_scenarios.csv")
+# Function to compute anomaly for a given SSP scenario
+compute_anomaly <- function(df, mean_col, std_col) {
+  # Select relevant columns
+  ssp_data <- df[, c("Year", mean_col, std_col)]
+  
+  # Compute reference period mean and standard deviation (1860-1900)
+  ref_data <- ssp_data[ssp_data$Year >= 1860 & ssp_data$Year <= 1900, ]
+  
+  ref_mean <- mean(ref_data[[mean_col]], na.rm = TRUE)
+  ref_std  <- mean(ref_data[[std_col]], na.rm = TRUE)
+  
+  # Compute anomalies
+  ssp_data[[mean_col]] <- ssp_data[[mean_col]] - ref_mean
+  ssp_data[[std_col]]  <- ssp_data[[std_col]] - ref_std  # Adjust standard deviation as well
+  
+  return(ssp_data)
+}
+
+
+# Apply the function to all SSPs
+ssp585_a <- compute_anomaly(df, "mean_585", "std_585")
+ssp370_a <- compute_anomaly(df, "mean_370", "std_370")
+ssp245_a <- compute_anomaly(df, "mean_245", "std_245")
+ssp126_a <- compute_anomaly(df, "mean_126", "std_126")
+
+# Combine into a single data frame
+anomaly_total <- Reduce(function(x, y) merge(x, y, by = "Year"), list(ssp585_a, ssp370_a, ssp245_a, ssp126_a))
+
+# View the final dataset
+head(anomaly_total)
+anomaly_total<-anomaly_total[,c("Year", "mean_585", "std_585","mean_370","std_370","mean_245", "std_245", "mean_126","std_126")]
+
+
+# Create a new column for color based on the Year
+anomaly_total$color_period <- ifelse(anomaly_total$Year <= 2014, "black", "colored")
+
+# Create separate dataframes for before and after 2015
+before_2015 <- anomaly_total[anomaly_total$Year <= 2014, ]
+after_2015 <- anomaly_total[anomaly_total$Year > 2014, ]
+
+# Add period column
+before_2015$Period <- "Before 2015"
+after_2015$Period <- "After 2015"
+
+# Combine datasets
+combined_data <- bind_rows(before_2015, after_2015)
+
+# Convert to long format
+long_data <- combined_data %>%
+  pivot_longer(cols = starts_with("mean_"), names_to = "SSP", values_to = "Mean_ALD") %>%
+  pivot_longer(cols = starts_with("std_"), names_to = "SSP_std", values_to = "STD_ALD") %>%
+  filter(gsub("mean_", "", SSP) == gsub("std_", "", SSP_std)) %>%
+  dplyr::select(-SSP_std) %>%
+  mutate(SSP = gsub("mean_", "SSP", SSP))  # Rename scenarios
+
+# Define SSP colors for after 2015
+ssp_colors <- c("SSP585" = "blue", "SSP370" = "darkgreen", "SSP245" = "orange", "SSP126" = "red")
+
+
+# Compute 20-year rolling mean and standard deviation for each SSP
+long_data <- long_data %>%
+  group_by(SSP) %>%
+  mutate(
+    Rolling_Mean_ALD = rollmean(Mean_ALD, k = 20, fill = NA, align = "center"),
+    Rolling_STD_ALD  = rollapply(STD_ALD, width = 20, FUN = mean, fill = NA, align = "center")
+  )
+
+# Plot
+ggplot(long_data, aes(x = Year, y = Mean_ALD, group = SSP)) +
+  
+  # Before 2015: Black lines & grey ribbons
+  geom_line(data = filter(long_data, Period == "Before 2015"), color = "black", linewidth = 0.8) +
+  geom_ribbon(data = filter(long_data, Period == "Before 2015"),
+              aes(ymin = Mean_ALD - STD_ALD, ymax = Mean_ALD + STD_ALD),
+              fill = "grey", alpha = 0.2) +
+  
+  # After 2015: Colored lines & ribbons
+  geom_line(data = filter(long_data, Period == "After 2015"),
+            aes(color = SSP), linewidth = 0.8) +
+  geom_ribbon(data = filter(long_data, Period == "After 2015"),
+              aes(ymin = Mean_ALD - STD_ALD, ymax = Mean_ALD + STD_ALD, fill = SSP),
+              alpha = 0.2) +
+  
+  # Rolling Mean before 2015 (Black line)
+  geom_line(data = filter(long_data, Year < 2015),
+            aes(y = Rolling_Mean_ALD), color = "black", linewidth = 1.2, linetype = "solid") +
+  
+  # Rolling Mean after 2015 (Colored lines)
+  geom_line(data = filter(long_data, Year >= 2015),
+            aes(y = Rolling_Mean_ALD, color = SSP), linewidth = 1.2, linetype = "solid") +
+  
+  # Rolling STD before 2015 (Grey ribbon)
+  geom_ribbon(data = filter(long_data, Year < 2015),
+              aes(ymin = Rolling_Mean_ALD - Rolling_STD_ALD, 
+                  ymax = Rolling_Mean_ALD + Rolling_STD_ALD),
+              fill = "grey", alpha = 0.15) +
+  
+  # Rolling STD after 2015 (Colored ribbons)
+  #geom_ribbon(data = filter(long_data, Year >= 2015),
+              #aes(ymin = Rolling_Mean_ALD - Rolling_STD_ALD, 
+                  #ymax = Rolling_Mean_ALD + Rolling_STD_ALD, 
+                  #fill = SSP),
+              #alpha = 0.15) +
+  
+  # Vertical line for 2015
+  geom_vline(xintercept = 2015, linetype = "dashed", color = "black") +
+  
+  # Labels and title
+  labs(x = "Year", y = "ALD [m]", title = "Increase in Active Layer Depth Relative to 1880-1900", 
+       color = "SSP Scenario", fill = "SSP Scenario") +
+  
+  # Color scales
+  scale_color_manual(values = ssp_colors) +
+  scale_fill_manual(values = ssp_colors) +
+  
+  # Theme settings
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 10)
+  )
+```
+### Calculating how much Nitrogen will be in the active layer following active layer depth increase
+
+
+```{r}
+
+
+library(terra)
+setwd("/Users/laraoxley/Desktop/data/CMIP6_corr/N_asymptotic")
+# Load NetCDF files
+ALD <- rast("/Users/laraoxley/Desktop/data/CMIP6_corr/N_asymptotic/mean_ssp126_corr.nc")
+N_data <- rast("/Users/laraoxley/Desktop/data/CMIP6_corr/N_asymptotic/TN_30deg_corr.nc",lyr=1)
+LC <- rast("/Users/laraoxley/Desktop/data/CMIP6_corr/N_asymptotic/LC_remapnn_corr.nc")
+plot(ALD[[1]])
+cell_area<-cellSize(LC, mask=TRUE, lyrs=FALSE, unit="m")
+# Sum all the cell areas (total area of the grid)
+total_area <- global(cell_area, fun = "sum", na.rm = TRUE)$sum
+
+cell_area<-cellSize(N_data, mask=TRUE, lyrs=FALSE, unit="m")
+# Sum all the cell areas (total area of the grid)
+total_area_N <- global(cell_area, fun = "sum", na.rm = TRUE)$sum
+
+cell_area<-cellSize(ALD, mask=TRUE, lyrs=FALSE, unit="m")
+# Sum all the cell areas (total area of the grid)
+total_area_ALD <- global(cell_area, fun = "sum", na.rm = TRUE)$sum
+
+# Print the total area (in m²)
+print(N_data)
+plot(ALD[[1]])
+
+# Get latitude and longitude from the grid
+lat <- unique(yFromCell(ALD, 1:ncell(ALD)))
+lon <- unique(xFromCell(ALD, 1:ncell(ALD)))
+
+# Set common extent
+common_extent <- ext(-179.95, 179.95, 30, 90)
+ext(ALD) <- ext(N_data) <- ext(LC) <- common_extent
+
+# Ensure masks are numeric (not logical)
+taiga_mask <- as.numeric(LC %in% c(1,2,3,4,5,8,9))
+tundra_mask <- as.numeric(LC %in% c(6,7,10))
+wetlands_mask <- as.numeric(LC == 11)
+other<- as.numeric(LC %in% c(12,13,14))
+barren_mask <- as.numeric(LC %in% c(15,16))
+plot(barren_mask)
+
+####plotting the biomes together in one map
+# Create a new raster where each biome gets a unique value
+biome_mask <- LC
+values(biome_mask) <- NA
+
+# Assign biome codes
+biome_mask[LC %in% c(1,2,3,4,5,8,9)] <- 1  # Taiga
+biome_mask[LC %in% c(6,7,10)]       <- 2  # Tundra
+biome_mask[LC == 11]                <- 3  # Wetlands
+biome_mask[LC %in% c(12,13,14)]     <- 4  # Other
+biome_mask[LC %in% c(15,16)]        <- 5  # Barren
+
+# Define colors
+biome_colors <- c(
+  "darkgreen",  # Taiga
+  "lightblue",  # Tundra
+  "lightgreen",       # Wetlands
+  "grey",       # Other
+  "tan"         # Barren
+)
+
+biome_labels <- c("Taiga", "Tundra", "Wetlands", "Other", "Barren")
+
+# Plot
+plot(biome_mask, col = biome_colors, main = "Arctic Biomes", legend = FALSE)
+
+# Add legend
+legend("bottomleft",
+       legend = biome_labels,
+       fill = biome_colors,
+       bg = "white",
+       cex = 0.9)
+#####
+
+# Land cover parameters
+params <- list(
+  taiga = c(a = 0.007, b = 0.097, k = 0.027),
+  tundra = c(a = 0.01, b = 0.017, k = 0.019),
+  barren = c(a = 0, b = 0.0161, k = 0.016)
+)
+### calculate wetlands like homogeneous 
+
+# Normalize Nitrogen (replace ifel with terra::ifel)
+normalize_N <- function(N, a, b, k) {
+  A_3m <- 3 * a + (b / k) * (1 - exp(-3 * k))
+  N / A_3m
+}
+
+taiga_N <- normalize_N(N_data * taiga_mask, params$taiga['a'], params$taiga['b'], params$taiga['k'])
+tundra_N <- normalize_N(N_data * tundra_mask, params$tundra['a'], params$tundra['b'], params$tundra['k'])
+barren_N <- normalize_N(N_data * barren_mask, params$barren['a'], params$barren['b'], params$barren['k'])
+wetlands_N <- (N_data * wetlands_mask) / 3
+
+# Compute thawed nitrogen
+compute_thawed_N <- function(ALD, N, a, b, k) {
+  A_ALD <- a * ALD + (b / k) * (1 - exp(-k * ALD))
+  ifel(N == 0, NA, N * A_ALD)  # Avoid multiplying by zero
+}
+
+taiga_N[taiga_N == 0] <- NA
+tundra_N[tundra_N == 0] <- NA
+wetlands_N[wetlands_N == 0] <- NA
+barren_N[barren_N == 0] <- NA
+plot(taiga_N)
+
+# Compute thawed nitrogen
+thawed_taiga <- compute_thawed_N(ALD, taiga_N, params$taiga['a'], params$taiga['b'], params$taiga['k'])
+thawed_tundra <- compute_thawed_N(ALD, tundra_N, params$tundra['a'], params$tundra['b'], params$tundra['k'])
+thawed_barren <- compute_thawed_N(ALD, barren_N, params$barren['a'], params$barren['b'], params$barren['k'])
+thawed_wetlands <- (wetlands_N * ALD)
+
+plot(ALD[[1]])
+plot(thawed_taiga[[250]], main = "Thawed Nitrogen: Taiga")
+plot(thawed_tundra[[1]], main = "Thawed Nitrogen: Tundra")
+plot(thawed_barren[[1]], main = "Thawed Nitrogen: Barren")
+plot(thawed_wetlands[[1]], main = "Thawed Nitrogen: Wetlands")
+combined<-thawed_taiga+thawed_tundra+thawed_barren+thawed_wetlands
+# Replace NA values with 0
+thawed_taiga[is.na(thawed_taiga)] <- 0
+thawed_tundra[is.na(thawed_tundra)] <- 0
+thawed_barren[is.na(thawed_barren)] <- 0
+thawed_wetlands[is.na(thawed_wetlands)] <- 0
+
+# Combine the rasters for each year
+combined_thawed <- thawed_taiga + thawed_tundra + thawed_barren + thawed_wetlands
+
+combined_thawed <- ifel(combined_thawed == 0, NA, combined_thawed)
+plot(combined_thawed[[1]])
+plot()
+# Calculate mean for each layer (year) in the SpatRaster object
+taiga_thawed_N<- global(thawed_taiga, fun = "mean", na.rm = TRUE)
+tundra_thawed_N<- global(thawed_tundra, fun = "mean", na.rm = TRUE)
+barren_thawed_N<- global(thawed_barren, fun = "mean", na.rm = TRUE)
+wetlands_thawed_N<- global(thawed_wetlands, fun = "mean", na.rm = TRUE)
+combined_thawed_N<- global(combined_thawed, fun = "mean", na.rm = TRUE)
+setwd("/Users/laraoxley/Desktop/data/CMIP6_corr/N_asymptotic")
+
+# Save combined raster to a NetCDF file
+writeCDF(
+  combined_thawed,
+  "thawed_total_ssp585.nc",
+  varname = "Thawed_N",
+  overwrite = TRUE
+)
+
+# Save combined raster to a NetCDF file
+writeCDF(
+  thawed_taiga,
+  "thawed_taiga_ssp126.nc",
+  varname = "Thawed_N",
+  overwrite = TRUE
+)
+# Save combined raster to a NetCDF file
+writeCDF(
+  thawed_tundra,
+  "thawed_tundra_ssp126.nc",
+  varname = "Thawed_N",
+  overwrite = TRUE
+)
+# Save combined raster to a NetCDF file
+writeCDF(
+  thawed_wetlands,
+  "thawed_wetlands_ssp126.nc",
+  varname = "Thawed_N",
+  overwrite = TRUE
+)
+# Save combined raster to a NetCDF file
+writeCDF(
+  thawed_barren,
+  "thawed_barren_ssp126.nc",
+  varname = "Thawed_N",
+  overwrite = TRUE
+)
+
+
+################################################################################
+# to calculate bioavailable thawed N: considering rooting depth of grasses: limit to 2m depth
+
+library(terra)
+setwd("/Users/laraoxley/Desktop/data/CMIP6_corr/N_asymptotic")
+# Load NetCDF files
+ALD <- rast("/Users/laraoxley/Desktop/data/CMIP6_corr/N_asymptotic/mean_ssp585_corr.nc")
+N_data <- rast("/Users/laraoxley/Desktop/data/CMIP6_corr/N_asymptotic/TN_30deg_corr.nc",lyr=1)
+LC <- rast("/Users/laraoxley/Desktop/data/CMIP6_corr/N_asymptotic/LC_remapnn_corr.nc")
+
+cell_area<-cellSize(LC, mask=TRUE, lyrs=FALSE, unit="m")
+# Sum all the cell areas (total area of the grid)
+total_area <- global(cell_area, fun = "sum", na.rm = TRUE)$sum
+
+# Print the total area (in m²)
+print(N_data)
+plot(ALD[[250]])
+
+# Get latitude and longitude from the grid
+lat <- unique(yFromCell(ALD, 1:ncell(ALD)))
+lon <- unique(xFromCell(ALD, 1:ncell(ALD)))
+
+# Set common extent
+common_extent <- ext(-179.95, 179.95, 30, 90)
+ext(ALD) <- ext(N_data) <- ext(LC) <- common_extent
+
+# Ensure masks are numeric (not logical)
+taiga_mask <- as.numeric(LC %in% c(1,2,3,4,5,8,9))
+tundra_mask <- as.numeric(LC %in% c(6,7,10))
+wetlands_mask <- as.numeric(LC == 11)
+other<- as.numeric(LC %in% c(12,13,14))
+barren_mask <- as.numeric(LC %in% c(15,16))
+plot(taiga_mask)
+total_mask<-barren_mask+wetlands_mask+tundra_mask+taiga_mask
+
+
+
+# Land cover parameters
+params <- list(
+  taiga = c(a = 0.007, b = 0.097, k = 0.027),
+  tundra = c(a = 0.01, b = 0.017, k = 0.019),
+  barren = c(a = 0, b = 0.0161, k = 0.016)
+)
+### calculate wetlands like homogeneous 
+
+# Normalize Nitrogen (replace ifel with terra::ifel)
+normalize_N <- function(N, a, b, k) {
+  A_3m <- 3 * a + (b / k) * (1 - exp(-3 * k))
+  N / A_3m
+}
+
+taiga_N <- normalize_N(N_data * taiga_mask, params$taiga['a'], params$taiga['b'], params$taiga['k'])
+tundra_N <- normalize_N(N_data * tundra_mask, params$tundra['a'], params$tundra['b'], params$tundra['k'])
+barren_N <- normalize_N(N_data * barren_mask, params$barren['a'], params$barren['b'], params$barren['k'])
+wetlands_N <- (N_data * wetlands_mask) / 3
+
+# Compute thawed nitrogen
+compute_thawed_N <- function(ALD, N, a, b, k) {
+  A_ALD <- a * ALD + (b / k) * (1 - exp(-k * ALD))
+  ifel(N == 0, NA, N * A_ALD)  # Avoid multiplying by zero
+}
+
+taiga_N[taiga_N == 0] <- NA
+tundra_N[tundra_N == 0] <- NA
+wetlands_N[wetlands_N == 0] <- NA
+barren_N[barren_N == 0] <- NA
+plot(taiga_N)
+total_N<-barren_N+wetlands_N+tundra_N+taiga_N
+
+# Compute thawed nitrogen for taiga: forests, rooting depth assumed deeper than 2m;
+thawed_taiga <- compute_thawed_N(ALD, taiga_N, params$taiga['a'], params$taiga['b'], params$taiga['k'])
+
+# For tundra, barren, and wetlands: set to NA where ALD < 2
+capped_ALD <- ifel(ALD > 2, 2, ALD)
+
+thawed_tundra <- compute_thawed_N(capped_ALD, tundra_N, params$tundra['a'], params$tundra['b'], params$tundra['k'])
+thawed_barren <- compute_thawed_N(capped_ALD, barren_N, params$barren['a'], params$barren['b'], params$barren['k'])
+thawed_wetlands <- wetlands_N * capped_ALD
+
+plot(thawed_tundra[[1]])
+plot(thawed_wetlands[[250]])
+plot(thawed_barren[[250]])
+plot(thawed_tundra[[1]])
+
+# Replace NA values with 0 to be able to combine the rasters
+thawed_taiga[is.na(thawed_taiga)] <- 0
+thawed_tundra[is.na(thawed_tundra)] <- 0
+thawed_barren[is.na(thawed_barren)] <- 0
+thawed_wetlands[is.na(thawed_wetlands)] <- 0
+
+# Combine the rasters for each year
+# for whole panArctic region: 
+combined_thawed <- thawed_tundra + thawed_barren + thawed_wetlands + thawed_taiga
+#taiga<-ifel(thawed_taiga == 0, NA, thawed_taiga)
+combined_thawed <- ifel(combined_thawed == 0, NA, combined_thawed)
+
+# Save combined raster to a NetCDF file
+writeCDF(
+  combined_thawed,
+  "thawed_total_ssp585_2m_limit.nc",
+  varname = "Thawed_N",
+  overwrite = TRUE
+)
+
+# Compute cell areas for each year
+cell_areas_all_years <- rast(lapply(1:nlyr(combined_thawed), function(i) {
+  cellSize(combined_thawed[[i]], mask = TRUE, unit = "m")
+}))
+plot(cell_areas_all_years[[250]])
+# Compute weighted thawed nitrogen for each year
+weighted_thawed_all_years <- combined_thawed * cell_areas_all_years
+plot(weighted_thawed_all_years[[250]])
+# Compute total weighted thawed nitrogen (sum over all cells)
+total_weighted_thawed <- global(weighted_thawed_all_years, "sum", na.rm = TRUE)
+total_thawed_Pg <- total_weighted_thawed / 1e12
+
+
+# Compute total area for each year
+total_area_all_years <- global(cell_areas_all_years, "sum", na.rm = TRUE)
+
+# Compute the final weighted average thawed nitrogen (kg N / m²)
+weighted_mean_thawed <- total_weighted_thawed / total_area_all_years
+setwd("/Users/laraoxley/Desktop/data/CMIP6_corr/N_asymptotic/std_ssp585")
+write.csv(weighted_mean_thawed, "weighted_mean_thawed_total.csv")
+
+plot(1:250, total_area_all_years$sum, type = "l", main = "Total Arctic Area Over Time",
+     xlab = "Year", ylab = "Total Area (m²)")
+
+
+# just for grasslands
+combined_thawed <- thawed_tundra + thawed_barren + thawed_wetlands
+combined_thawed <- ifel(combined_thawed == 0, NA, combined_thawed)
+
+# Save combined raster to a NetCDF file
+writeCDF(
+  combined_thawed,
+  "thawed_grasslands_ssp585_2m_limit.nc",
+  varname = "Thawed_N",
+  overwrite = TRUE
+)
+
+# Compute cell areas for each year
+cell_areas_all_years <- rast(lapply(1:nlyr(combined_thawed), function(i) {
+  cellSize(combined_thawed[[i]], mask = TRUE, unit = "m")
+}))
+plot(cell_areas_all_years[[250]])
+# Compute weighted thawed nitrogen for each year
+weighted_thawed_all_years <- combined_thawed * cell_areas_all_years
+plot(weighted_thawed_all_years[[250]])
+# Compute total weighted thawed nitrogen (sum over all cells)
+total_weighted_thawed <- global(weighted_thawed_all_years, "sum", na.rm = TRUE)
+total_thawed_Pg <- total_weighted_thawed / 1e12
+
+
+# Compute total area for each year
+total_area_all_years <- global(cell_areas_all_years, "sum", na.rm = TRUE)
+
+# Compute the final weighted average thawed nitrogen (kg N / m²)
+weighted_mean_thawed <- total_weighted_thawed / total_area_all_years
+setwd("/Users/laraoxley/Desktop/data/CMIP6_corr/N_asymptotic/std_ssp585")
+write.csv(weighted_mean_thawed, "weighted_mean_thawed_grass.csv")
+
+plot(1:250, total_area_all_years$sum, type = "l", main = "Total Arctic Area Over Time",
+     xlab = "Year", ylab = "Total Area (m²)")
+
+
+#for taiga
+setwd("/Users/laraoxley/Desktop/data/CMIP6_corr/N_asymptotic/std_ssp126")
+
+#############################################################################
+# Compute cell areas for each year
+cell_areas_all_years <- rast(lapply(1:nlyr(thawed_taiga), function(i) {
+  cellSize(thawed_taiga[[i]], mask = TRUE, unit = "m")
+}))
+
+# Compute weighted thawed nitrogen for each year
+weighted_thawed_all_years <- thawed_taiga * cell_areas_all_years
+
+# Compute total weighted thawed nitrogen (sum over all cells)
+total_weighted_thawed_taiga <- global(weighted_thawed_all_years, "sum", na.rm = TRUE)
+
+# Compute total area for each year
+total_area_all_years_taiga <- global(cell_areas_all_years, "sum", na.rm = TRUE)
+
+# Compute the final weighted average thawed nitrogen (kg N / m²)
+weighted_mean_thawed_taiga <- total_weighted_thawed_taiga / total_area_all_years_taiga
+write.csv(weighted_mean_thawed_taiga, "weighted_mean_thawed_taiga.csv")
+
+plot(1:251, total_area_all_years$sum, type = "l", main = "Total Arctic Area Over Time",
+     xlab = "Year", ylab = "Total Area (m²)")
+
+
+```
+### show total amount of N in soil in Pg
+
+```
+```{r}
+##### total thawed N in Pg
+
+library(ggplot2)
+library(dplyr)
+library(zoo)
+library(tidyr)
+df<-read.csv("total_thawed_N.csv") ###without IPSL model, as this has a much lower ALD
+# Function to compute anomaly for a given SSP scenario
+compute_anomaly <- function(df, mean_col, std_col) {
+  # Select relevant columns
+  ssp_data <- df[, c("Year", mean_col, std_col)]
+  
+  # Compute reference period mean and standard deviation (1860-1900)
+  ref_data <- ssp_data[ssp_data$Year >= 1860 & ssp_data$Year <= 1900, ]
+  
+  ref_mean <- mean(ref_data[[mean_col]], na.rm = TRUE)
+  ref_std  <- mean(ref_data[[std_col]], na.rm = TRUE)
+  
+  # Compute anomalies
+  ssp_data[[mean_col]] <- ssp_data[[mean_col]] - ref_mean
+  ssp_data[[std_col]]  <- ssp_data[[std_col]] - ref_std  # Adjust standard deviation as well
+  
+  return(ssp_data)
+}
+
+
+# Apply the function to all SSPs
+ssp585_a <- compute_anomaly(df, "Total_585", "STD_585")
+ssp370_a <- compute_anomaly(df, "Total_370", "STD_370")
+ssp245_a <- compute_anomaly(df, "Total_245", "STD_245")
+ssp126_a <- compute_anomaly(df, "Total_126", "STD_126")
+
+# Combine into a single data frame
+anomaly_total <- Reduce(function(x, y) merge(x, y, by = "Year"), list(ssp585_a, ssp370_a, ssp245_a, ssp126_a))
+
+anomaly_total<-data.frame(ssp585_a, ssp370_a, ssp245_a,ssp126_a)
+anomaly_total<-anomaly_total[,c("Year", "Total_585", "STD_585","Total_370","STD_370","Total_245", "STD_245", "Total_126","STD_126")]
+
+
+# Create a new column for color based on the year
+anomaly_total$color_period <- ifelse(anomaly_total$Year <= 2014, "black", "colored")
+
+# Create separate dataframes for before and after 2015
+before_2015 <- anomaly_total[anomaly_total$Year <= 2014, ]
+after_2015 <- anomaly_total[anomaly_total$Year > 2014, ]
+# Add period column
+before_2015$Period <- "Before 2015"
+after_2015$Period <- "After 2015"
+# Combine datasets
+combined_data <- bind_rows(before_2015, after_2015)
+
+# Convert to long format
+long_data <- combined_data %>%
+  pivot_longer(cols = starts_with("Total_"), names_to = "SSP", values_to = "Mean_N") %>%
+  pivot_longer(cols = starts_with("STD_"), names_to = "SSP_std", values_to = "STD_N") %>%
+  filter(gsub("Total_", "", SSP) == gsub("STD_", "", SSP_std)) %>%
+  dplyr::select(-SSP_std) %>%
+  mutate(SSP = gsub("Total_", "SSP", SSP))  # Rename scenarios
+
+# Define SSP colors for after 2015
+ssp_colors <- c("SSP585" = "blue", "SSP370" = "darkgreen", "SSP245" = "orange", "SSP126" = "red")
+
+# Compute 20-year rolling mean and standard deviation for each SSP
+long_data <- long_data %>%
+  group_by(SSP) %>%
+  mutate(
+    Rolling_Mean_N = rollmean(Mean_N, k = 20, fill = NA, align = "center"),
+    Rolling_STD_N  = rollapply(STD_N, width = 20, FUN = mean, fill = NA, align = "center")
+  )
+
+# Plot
+ggplot(long_data, aes(x = Year, y = Mean_N, group = SSP)) +
+  
+  # Before 2015: Black lines & grey ribbons
+  geom_line(data = filter(long_data, Period == "Before 2015"), color = "black", linewidth = 0.8) +
+  geom_ribbon(data = filter(long_data, Period == "Before 2015"),
+              aes(ymin = Mean_N - STD_N, ymax = Mean_N + STD_N),
+              fill = "grey", alpha = 0.2) +
+  
+  # After 2015: Colored lines & ribbons
+  geom_line(data = filter(long_data, Period == "After 2015"),
+            aes(color = SSP), linewidth = 0.8) +
+  geom_ribbon(data = filter(long_data, Period == "After 2015"),
+              aes(ymin = Mean_N - STD_N, ymax = Mean_N + STD_N, fill = SSP),
+              alpha = 0.2) +
+  
+  # Rolling Mean before 2015 (Black line)
+  geom_line(data = filter(long_data, Year < 2015),
+            aes(y = Rolling_Mean_N), color = "black", linewidth = 0.8, linetype = "solid") +
+  
+  # Rolling Mean after 2015 (Colored lines)
+  geom_line(data = filter(long_data, Year >= 2015),
+            aes(y = Rolling_Mean_N, color = SSP), linewidth = 0.8, linetype = "solid") +
+  
+  # Rolling STD before 2015 (Grey ribbon)
+  geom_ribbon(data = filter(long_data, Year < 2015),
+              aes(ymin = Rolling_Mean_N - Rolling_STD_N, 
+                  ymax = Rolling_Mean_N + Rolling_STD_N),
+              fill = "grey", alpha = 0.15) +
+  
+  # Rolling STD after 2015 (Colored ribbons)
+  #geom_ribbon(data = filter(long_data, Year >= 2015),
+  #aes(ymin = Rolling_Mean_N - Rolling_STD_N, 
+  #ymax = Rolling_Mean_N + Rolling_STD_N, 
+  #fill = SSP),
+  #alpha = 0.15) +
+  
+  # Vertical line for 2015
+  geom_vline(xintercept = 2015, linetype = "dashed", color = "black") +
+  
+  # Labels and title
+  labs(x = "Year", y = "N [Pg]", title = "Increase in Soil Nitrogen Relative to 1880-1900", 
+       color = "SSP Scenario", fill = "SSP Scenario") +
+  
+  # Color scales
+  scale_color_manual(values = ssp_colors) +
+  scale_fill_manual(values = ssp_colors) +
+  
+  # Theme settings
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 10)
+  )
+
+
+
+##### bar plotting
+
+data<-read.csv("total_thawed_N.csv")
+# Filter the data for the relevant time frames: 1880-1900, 1990-2010, 2080-2100
+time_frames <- c('1880-1900', '1990-2010', '2080-2100')
+
+filtered_data <- data[data$TF %in% time_frames, ]
+
+# Aggregate the data by the mean nitrogen values for each time frame
+agg_data <- filtered_data %>%
+  group_by(TF) %>%
+  summarize(
+    mean_126 = mean(Total_126, na.rm = TRUE),
+    mean_245 = mean(Total_245, na.rm = TRUE),
+    mean_370 = mean(Total_370, na.rm = TRUE),
+    mean_585 = mean(Total_585, na.rm = TRUE)
+  )
+
+# Reshape data for plotting
+agg_data_melted <- agg_data %>%
+  gather(key = "Scenario", value = "Nitrogen_Storage", mean_126,mean_245, mean_370, mean_585)
+
+# Plotting
+ggplot(agg_data_melted, aes(x = TF, y = Nitrogen_Storage, fill = Scenario)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  scale_fill_manual(values = c("mean_126" = "red", "mean_370" = "green", "mean_585" = "blue")) +
+  labs(
+    title = "Mean Nitrogen Storage for Different Scenarios and Time Frames",
+    x = "Time Frame",
+    y = "Mean Nitrogen Storage (kg N/m²)",
+    fill = "Scenario"
+  ) +
+  theme_minimal() +
+  theme(legend.title = element_text(size = 12), legend.position = "top")
+
+
+###as anomaly plot
+
+# Load necessary libraries
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+
+# Filter the data for the relevant time frames: 1880-1900, 1990-2010, 2080-2100
+time_frames <- c('1880-1900', '1990-2010', '2080-2100')
+filtered_data <- data[data$TF %in% time_frames, ]
+
+# Aggregate the data by the mean nitrogen values and standard deviation for each time frame
+agg_data <- filtered_data %>%
+  group_by(TF) %>%
+  summarize(
+    mean_126 = mean(Total_126, na.rm = TRUE),
+    mean_370 = mean(Total_370, na.rm = TRUE),
+    mean_585 = mean(Total_585, na.rm = TRUE),
+    std_126 = mean(STD_126, na.rm = TRUE),
+    std_370 = mean(STD_370, na.rm = TRUE),
+    std_585 = mean(STD_585, na.rm = TRUE)
+  )
+
+# Reshape the data for plotting
+agg_data_melted <- agg_data %>%
+  gather(key = "Scenario", value = "Nitrogen_Storage", mean_585, mean_370, mean_126) %>%
+  mutate(
+    Std_Dev = case_when(
+      Scenario == "mean_126" ~ std_126,
+      Scenario == "mean_370" ~ std_370,
+      Scenario == "mean_585" ~ std_585
+    ),
+    Scenario = factor(Scenario, levels = c("mean_126", "mean_370", "mean_585"))
+  )
+
+# Plotting with error bars
+ggplot(agg_data_melted, aes(x = TF, y = Nitrogen_Storage, fill = Scenario)) +
+  geom_bar(stat = "identity", position = "dodge", width = 0.7) +
+  geom_errorbar(
+    aes(ymin = Nitrogen_Storage - Std_Dev, ymax = Nitrogen_Storage + Std_Dev),
+    position = position_dodge(width = 0.7), width = 0.25
+  ) +
+  scale_fill_manual(values = c("mean_126" = "red", "mean_370" = "green", "mean_585" = "blue")) +
+  labs(
+    title = "Nitrogen Storage Anomalies with Standard Deviation Relative to 1880-1900 Reference Period",
+    x = "Time Frame",
+    y = "Anomaly in Nitrogen Storage (kg N/m²)",
+    fill = "Scenario"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+# Set the 1880-1900 values as the reference (i.e., 0 for anomalies)
+reference_values <- agg_data[agg_data$TF == '1880-1900', c("mean_126", "mean_370", "mean_585")]
+
+# Calculate anomalies for the timeframes 1990-2010 and 2080-2100
+agg_data_anomalies <- agg_data %>%
+  filter(TF != '1880-1900') %>%
+  mutate(
+    anomaly_n_126 = mean_126 - reference_values$mean_126,
+    anomaly_n_370 = mean_370 - reference_values$mean_370,
+    anomaly_n_585 = mean_585 - reference_values$mean_585,
+    std_n_126 = std_126,
+    std_n_370 = std_370,
+    std_n_585 = std_585
+  )
+
+# Reshape the data for plotting
+agg_data_anomalies_melted <- agg_data_anomalies %>%
+  gather(key = "Scenario", value = "Nitrogen_Storage", anomaly_n_126, anomaly_n_370, anomaly_n_585) %>%
+  mutate(
+    Std_Dev = case_when(
+      Scenario == "anomaly_n_126" ~ std_n_126,
+      Scenario == "anomaly_n_370" ~ std_n_370,
+      Scenario == "anomaly_n_585" ~ std_n_585
+    ),
+    Scenario = factor(Scenario, levels = c("anomaly_n_126", "anomaly_n_370", "anomaly_n_585"))
+  )
+
+
+# Plotting with error bars
+ggplot(agg_data_anomalies_melted, aes(x = TF, y = Nitrogen_Storage, fill = Scenario)) +
+  geom_bar(stat = "identity", position = "dodge", width = 0.7) +
+  geom_errorbar(aes(ymin = Nitrogen_Storage - Std_Dev, ymax = Nitrogen_Storage + Std_Dev),
+                position = position_dodge(width = 0.7), width = 0.25) +
+  scale_fill_manual(values = c("anomaly_n_126" = "red", "anomaly_n_370" = "darkgreen", "anomaly_n_585" = "blue")) +
+  labs(
+    title = "Soil nitrogen content, relative to preindustrial",
+    x = "Time Frame",
+    y = "N (kg N/m²)",
+    fill = "Scenario"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+
+
+```
+### code to plot time series of N kg / ha *yr release
+
+```{r}
+library(tidyverse)
+library(zoo)
+setwd("/Users/laraoxley/Desktop/data/CMIP6/final")
+maxN<-read.csv("TN_weighted_kg_per_m2_arctic.csv") ###without IPSL model, as this has a much lower ALD
+str(maxN)
+ggplot(maxN, aes(x = Year)) +
+  # Add shaded area for variance (mean ± 1 standard deviation)
+  geom_ribbon(aes(ymin = mean_370 - std_370, ymax = mean_370 + std_370), fill = "grey80", alpha = 0.5) +
+  # Plot the mean line with colors changing based on Year
+  geom_line(aes(y = mean_370), color = "darkgreen", linewidth = 0.8) +
+  geom_ribbon(aes(ymin = mean_585 - std_585, ymax = mean_585 + std_585), fill = "grey80", alpha = 0.5) +
+  # Plot the mean line with colors changing based on Year
+  geom_line(aes(y = mean_585),  color = "blue", linewidth = 0.8) +
+  geom_ribbon(aes(ymin = mean_126 - std_126, ymax = mean_126 + std_126), fill = "grey80", alpha = 0.5) +
+  # Plot the mean line with colors changing based on Year
+  geom_line(aes(y = mean_126), color = "red",  linewidth = 0.8) +
+  geom_ribbon(aes(ymin = mean_245 - std_245, ymax = mean_245 + std_245), fill = "grey80", alpha = 0.5) +
+  # Plot the mean line with colors changing based on Year
+  geom_line(aes(y = mean_245), color = "yellow",  linewidth = 0.8) +
+  labs(x = "Year", y = "N [kg N /m^2]", title = "Nitrogen released through permafrost thawing") +
+  xlim(1850, 2100) +
+  theme_bw() +
+  theme(legend.position = "none")  # Remove the legend if not needed
+
+# want it in kg / ha * yr
+# Function to compute anomaly for a given SSP scenario
+compute_anomaly <- function(df, mean_col, std_col) {
+  # Select relevant columns
+  ssp_data <- df[, c("Year", mean_col, std_col)]
+  
+  # Compute reference period mean and standard deviation (1860-1900)
+  ref_data <- ssp_data[ssp_data$Year >= 1860 & ssp_data$Year <= 1900, ]
+  
+  ref_mean <- mean(ref_data[[mean_col]], na.rm = TRUE)
+  ref_std  <- mean(ref_data[[std_col]], na.rm = TRUE)
+  
+  # Compute anomalies
+  ssp_data[[mean_col]] <- ssp_data[[mean_col]] - ref_mean
+  ssp_data[[std_col]]  <- ssp_data[[std_col]] - ref_std  # Adjust standard deviation as well
+  
+  return(ssp_data)
+}
+
+
+# Apply the function to all SSPs
+ssp585_a <- compute_anomaly(maxN, "mean_585", "std_585")
+ssp370_a <- compute_anomaly(maxN, "mean_370", "std_370")
+ssp245_a <- compute_anomaly(maxN, "mean_245", "std_245")
+ssp126_a <- compute_anomaly(maxN, "mean_126", "std_126")
+
+# Combine into a single data frame
+anomaly_total <- Reduce(function(x, y) merge(x, y, by = "Year"), list(ssp585_a, ssp370_a, ssp245_a, ssp126_a))
+anomaly_total<-data.frame(ssp585_a, ssp370_a, ssp126_a, ssp245_a)
+anomaly_total<-anomaly_total[,c("Year", "mean_585", "std_585","mean_370","std_370","mean_245", "std_245","mean_126","std_126")]
+
+
+# Create a new column for color based on the Year
+anomaly_total$color_period <- ifelse(anomaly_total$Year <= 2014, "black", "colored")
+
+# Create separate dataframes for before and after 2015
+before_2015 <- anomaly_total[anomaly_total$Year <= 2014, ]
+after_2015 <- anomaly_total[anomaly_total$Year > 2014, ]
+# Add period column
+before_2015$Period <- "Before 2015"
+after_2015$Period <- "After 2015"
+# Combine datasets
+combined_data <- bind_rows(before_2015, after_2015)
+
+# Convert to long format
+long_data <- combined_data %>%
+  pivot_longer(cols = starts_with("mean_"), names_to = "SSP", values_to = "Mean_N") %>%
+  pivot_longer(cols = starts_with("std_"), names_to = "SSP_std", values_to = "STD_N") %>%
+  filter(gsub("mean_", "", SSP) == gsub("std_", "", SSP_std)) %>%
+  dplyr::select(-SSP_std) %>%
+  mutate(SSP = gsub("mean_", "SSP", SSP))  # Rename scenarios
+
+# Define SSP colors for after 2015
+ssp_colors <- c("SSP585" = "blue", "SSP370" = "darkgreen", "SSP245" = "orange", "SSP126" = "red")
+
+# Compute 20-year rolling mean and standard deviation for each SSP
+long_data <- long_data %>%
+  group_by(SSP) %>%
+  mutate(
+    Rolling_Mean_N = rollmean(Mean_N, k = 20, fill = NA, align = "center"),
+    Rolling_STD_N = rollapply(STD_N, width = 20, FUN = mean, fill = NA, align = "center")
+  )
+
+# Plot
+ggplot(long_data, aes(x = Year, y = Mean_N, group = SSP)) +
+  
+  # Before 2015: Black lines & grey ribbons
+  geom_line(data = filter(long_data, Period == "Before 2015"), color = "black", linewidth = 0.8) +
+  geom_ribbon(data = filter(long_data, Period == "Before 2015"),
+              aes(ymin = Mean_N - STD_N, ymax = Mean_N + STD_N),
+              fill = "grey", alpha = 0.2) +
+  
+  # After 2015: Colored lines & ribbons
+  geom_line(data = filter(long_data, Period == "After 2015"),
+            aes(color = SSP), linewidth = 0.8) +
+  geom_ribbon(data = filter(long_data, Period == "After 2015"),
+              aes(ymin = Mean_N - STD_N, ymax = Mean_N + STD_N, fill = SSP),
+              alpha = 0.2) +
+  
+  # Rolling Mean before 2015 (Black line)
+  geom_line(data = filter(long_data, Year < 2015),
+            aes(y = Rolling_Mean_N), color = "black", linewidth = 0.8, linetype = "solid") +
+  
+  # Rolling Mean after 2015 (Colored lines)
+  geom_line(data = filter(long_data, Year >= 2015),
+            aes(y = Rolling_Mean_N, color = SSP), linewidth = 0.8, linetype = "solid") +
+  
+  # Rolling STD before 2015 (Grey ribbon)
+  geom_ribbon(data = filter(long_data, Year < 2015),
+              aes(ymin = Rolling_Mean_N - Rolling_STD_N, 
+                  ymax = Rolling_Mean_N + Rolling_STD_N),
+              fill = "grey", alpha = 0.15) +
+  # Vertical line for 2015
+  geom_vline(xintercept = 2015, linetype = "dashed", color = "black") +
+  
+  # Labels and title
+  labs(x = "Year", y = "N [kg / ha *yr]", title = "Increase in Soil N, Relative to 1880-1900", 
+       color = "SSP Scenario", fill = "SSP Scenario") +
+  
+  # Color scales
+  scale_color_manual(values = ssp_colors) +
+  scale_fill_manual(values = ssp_colors) +
+  
+  # Theme settings
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 10)
+  )
+
+# Create a long-format dataframe for 1% and 10% anomalies
+scaled_data <- long_data %>%
+  mutate(N_1pct = Mean_N * 0.01,
+         N_10pct = Mean_N * 0.10) %>%
+  select(Year, SSP, Period, N_1pct, N_10pct) %>%
+  pivot_longer(cols = starts_with("N_"), names_to = "Percent_Level", values_to = "Scaled_N") %>%
+  mutate(Percent_Level = recode(Percent_Level, 
+                                N_1pct = "1% of N anomaly", 
+                                N_10pct = "10% of N anomaly"))
+
+
+ggplot(scaled_data, aes(x = Year, y = Scaled_N, color = SSP, linetype = Percent_Level)) +
+  geom_line(linewidth = 0.8) +
+  
+  # Highlight transition year
+  geom_vline(xintercept = 2015, linetype = "dashed", color = "black") +
+  
+  labs(
+    title = "1% and 10% of Soil N Anomaly Over Time",
+    x = "Year",
+    y = "N [kg / ha * yr]",
+    color = "SSP Scenario",
+    linetype = "Percentage of N anomaly"
+  ) +
+  scale_color_manual(values = ssp_colors) +
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 10)
+  )
+```
+
+```
+## calculate actual amount of N that plants can take up, differentiate between taiga (no 2m limitation) and grasses (2m rooting depth restriction)
+# assume biomes barren, tundra, wetlands are "grass types"
+# boreal = taiga
+
+
+
+```{r}
+#for each SSP scenario
+setwd("/Users/laraoxley/Desktop/data/CMIP6_corr/N_asymptotic/")
+thawed_N_grasses_126<-read.csv("weighted_mean_thawed_grass_mean_ssp126.csv") 
+thawed_N_grasses_245<-read.csv("weighted_mean_thawed_grass_mean_ssp245.csv") 
+thawed_N_grasses_370<-read.csv("weighted_mean_thawed_grass_mean_ssp370.csv") 
+thawed_N_grasses_585<-read.csv("weighted_mean_thawed_grass_mean_ssp585.csv") 
+thawed_N_grasses_585 <- rbind(thawed_N_grasses_585, thawed_N_grasses_585[nrow(thawed_N_grasses_585), ])
+thawed_N_grasses_std_126<-read.csv("weighted_mean_thawed_grass_std_ssp126.csv") 
+thawed_N_grasses_std_245<-read.csv("weighted_mean_thawed_grass_std_ssp245.csv") 
+thawed_N_grasses_std_370<-read.csv("weighted_mean_thawed_grass_std_ssp370.csv") 
+thawed_N_grasses_std_585<-read.csv("weighted_mean_thawed_grass_std_ssp585.csv") 
+thawed_N_grasses_std_585<- rbind(thawed_N_grasses_std_585, thawed_N_grasses_std_585[nrow(thawed_N_grasses_std_585), ])
+
+thawed_n_grasses<-data.frame(thawed_N_grasses_126$sum, thawed_N_grasses_245$sum, thawed_N_grasses_370$sum, thawed_N_grasses_585$sum)
+thawed_n_grasses$Year<-rep(1850:2100)
+
+# First, let's name the columns properly (optional but recommended)
+colnames(thawed_n_grasses) <- c("SSP126", "SSP245", "SSP370", "SSP585", "Year")
+
+# Calculate means for each period
+results <- list(
+  period_1880_1900 = colMeans(thawed_n_grasses[thawed_n_grasses$Year %in% 1880:1900, 1:4]),
+  period_1990_2010 = colMeans(thawed_n_grasses[thawed_n_grasses$Year %in% 1990:2010, 1:4]),
+  period_2080_2100 = colMeans(thawed_n_grasses[thawed_n_grasses$Year %in% 2080:2100, 1:4])
+)
+
+# Print the results
+results
+
+# Calculate mean values for each period and SSP
+mean_1990_2010 <- colMeans(thawed_n_grasses[thawed_n_grasses$Year %in% 1990:2010, 1:4])
+mean_2080_2100 <- colMeans(thawed_n_grasses[thawed_n_grasses$Year %in% 2080:2100, 1:4])
+
+# Calculate the difference (additional Nin soil due to permafrost thawing (difference 2080-2100 to 1990-2010)):
+# this is in kg / m2
+additional_N <- mean_2080_2100 - mean_1990_2010
+
+# in g/ m2: 
+add_N_gm2<-additional_N*1000
+
+# considering 1, 5 and 10% bioavailability: 
+bioavailable_N_1<-add_N_gm2*0.01
+bioavailable_N_5<-add_N_gm2*0.05
+bioavailable_N_10<-add_N_gm2*0.1
+
+n_fertilizer_grasses<-data.frame(bioavailable_N_1, bioavailable_N_5, bioavailable_N_10)
+
+######################################################################
+# same procedure for taiga
+#for each SSP scenario
+setwd("/Users/laraoxley/Desktop/data/CMIP6_corr/N_asymptotic/")
+thawed_N_taiga_126<-read.csv("weighted_mean_thawed_taiga_mean_ssp126.csv") 
+thawed_N_taiga_245<-read.csv("weighted_mean_thawed_taiga_mean_ssp245.csv") 
+thawed_N_taiga_370<-read.csv("weighted_mean_thawed_taiga_mean_ssp370.csv") 
+thawed_N_taiga_585<-read.csv("weighted_mean_thawed_taiga_mean_ssp585.csv") 
+thawed_N_taiga_585 <- rbind(thawed_N_taiga_585, thawed_N_taiga_585[nrow(thawed_N_taiga_585), ])
+thawed_N_taiga_std_126<-read.csv("weighted_mean_thawed_taiga_std_ssp126.csv") 
+thawed_N_taiga_std_245<-read.csv("weighted_mean_thawed_taiga_std_ssp245.csv") 
+thawed_N_taiga_std_370<-read.csv("weighted_mean_thawed_taiga_std_ssp370.csv") 
+thawed_N_taiga_std_585<-read.csv("weighted_mean_thawed_taiga_std_ssp585.csv") 
+thawed_N_taiga_std_585<- rbind(thawed_N_taiga_std_585, thawed_N_taiga_std_585[nrow(thawed_N_taiga_std_585), ])
+
+thawed_n_taiga<-data.frame(thawed_N_taiga_126$sum, thawed_N_taiga_245$sum, thawed_N_taiga_370$sum, thawed_N_taiga_585$sum)
+thawed_n_taiga$Year<-rep(1850:2100)
+
+# First, let's name the columns properly (optional but recommended)
+colnames(thawed_n_taiga) <- c("SSP126", "SSP245", "SSP370", "SSP585", "Year")
+
+# Calculate means for each period
+results <- list(
+  period_1880_1900 = colMeans(thawed_n_taiga[thawed_n_taiga$Year %in% 1880:1900, 1:4]),
+  period_1990_2010 = colMeans(thawed_n_taiga[thawed_n_taiga$Year %in% 1990:2010, 1:4]),
+  period_2080_2100 = colMeans(thawed_n_taiga[thawed_n_taiga$Year %in% 2080:2100, 1:4])
+)
+
+# Print the results
+results
+
+# Calculate mean values for each period and SSP
+mean_1990_2010 <- colMeans(thawed_n_taiga[thawed_n_taiga$Year %in% 1990:2010, 1:4])
+mean_2080_2100 <- colMeans(thawed_n_taiga[thawed_n_taiga$Year %in% 2080:2100, 1:4])
+
+# Calculate the difference (additional Nin soil due to permafrost thawing (difference 2080-2100 to 1990-2010)):
+# this is in kg / m2
+additional_N <- mean_2080_2100 - mean_1990_2010
+
+# in g/ m2: 
+add_N_gm2<-additional_N*1000
+
+# considering 1, 5 and 10% bioavailability: 
+bioavailable_N_1<-add_N_gm2*0.01
+bioavailable_N_5<-add_N_gm2*0.05
+bioavailable_N_10<-add_N_gm2*0.1
+n_fertilizer_boreal<-data.frame(bioavailable_N_1, bioavailable_N_5, bioavailable_N_10)
+
+
+```
+
+```
+## calculate fertilisation rate for grasses and for taiga
+```{r}
+#
+
+n_fertilizer_grasses
+N_fertilizer_boreal
+
+## actual fertilizer calculation with Keuper et al results: 
+#Root biomass
+#Control: 0.8 +/- 0.3 mg / cm3
+#Deep fertilised: 1.6 +/- 0.8 mg / cm 3
+# --> additional biomass through fertilisation = 0.8 mg / cm3
+#0.8 mg / cm3 * 10 cm depth = 8 mg / cm2
+#8 mg / cm2 / 1000 = 0.008 g / cm2
+#0.008 g / cm2 * 10'000 cm = 80 g / m2
+#they added 8 g N / m2 fertiliser = 10 g biomass increase per g N fertilizer (N-use efficiency)
+
+#Potential root Biomass increase due to permafrost thawing 
+one_per_root <- n_fertilizer_grasses$bioavailable_N_1 * 10 
+five_per_root <- n_fertilizer_grasses$bioavailable_N_5 * 10 
+ten_per_root <-n_fertilizer_grasses$bioavailable_N_10 * 10 
+belowground<-data.frame(one_per_root,five_per_root,ten_per_root)
+rownames(belowground)<-c("SSP125", "SSP245","SSP370","SSP585")
+# Above-ground biomass: 
+#Keuper et al Results: 
+#Control: 8 g / m2
+#Deep fertilised: 17 g / m2
+# --> additional biomass through fertilisation = 9 g / m2
+# they added 8 g N / m2 fertiliser = 1.125 g biomass increase per g N fertilizer
+one_per_above <- n_fertilizer_grasses$bioavailable_N_1 * 1.125 
+five_per_above <- n_fertilizer_grasses$bioavailable_N_5 * 1.125 
+ten_per_above <-n_fertilizer_grasses$bioavailable_N_10 * 1.125 
+aboveground<-data.frame(one_per_above,five_per_above,ten_per_above)
+rownames(aboveground)<-c("SSP125", "SSP245","SSP370","SSP585")
+# Calculate total biomass increase and convert to carbon (assuming 50% C content)
+# Assuming the dataframes are already loaded
+total_biomass_grasses <- (belowground + aboveground) *0.5
+
+# Result
+print(total_biomass)
+
+total_biomass_increase_grasses_yearly<-total_biomass_grasses/100
+
+
+#### for boreal fertilizer calculation: 
+#average N-use efficiency for NPK fertilizer: 
+#sum of the average N efficiency / number of sites = 24.4 kg C / kg N * ha
+#24.4 + / - 5.6 (SE) kg C / kg N * ha = 2.5 g C / m2 (+/- 0.56 g C/m²) per g N / m2
+
+total_biomass_boreal<-n_fertilizer_boreal*2.5
+total_biomass_boreal_yearly<-total_biomass_boreal/100
+
+## add grass + boreal biomass increase together
+
+total_biomass_yearly<-total_biomass_boreal_yearly+total_biomass_increase_grasses_yearly
+colnames(total_biomass_yearly)<-c("1%","5%","10%")
+
+library(ggplot2)
+library(tidyr)
+
+# Convert to tidy format
+tidy_data <- total_biomass_yearly %>%
+  tibble::rownames_to_column("SSP") %>%
+  pivot_longer(
+    cols = -SSP,
+    names_to = "Bioavailability",
+    names_prefix = "Biomass_increase",
+    values_to = "biomass_increase"
+  )
+tidy_data$Bioavailability <- factor(tidy_data$Bioavailability, levels = c("1%", "5%", "10%"))
+
+# Plot
+ggplot(tidy_data, aes(x = SSP, y = biomass_increase, fill = Bioavailability)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  scale_fill_manual(
+    values = c("#66c2a5", "#8da0cb", "#fc8d62"),
+    labels = c("1%", "5%", "10%")
+  ) +
+  labs(
+    title = "Bioavailable Nitrogen by SSP and Fertilization Level",
+    x = "SSP Scenario",
+    y = "Biomass increase [ g / m2 ]",
+    fill = "Bioavailability"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "top")
+
+
+
+# Your data preparation (slightly adjusted for consistency)
+boreal_data <- as.data.frame(total_biomass_boreal_yearly) 
+colnames(boreal_data) <- c("Lower", "Mean", "Upper")
+boreal_data$Biome <- "Boreal"
+boreal_data$SSP <- c("SSP126", "SSP245", "SSP370", "SSP585")
+
+grasslands_data <- as.data.frame(total_biomass_increase_grasses_yearly)
+colnames(grasslands_data) <- c("Lower", "Mean", "Upper")
+grasslands_data$Biome <- "Tundra_Wetlands_Barren"
+grasslands_data$SSP <- c("SSP126", "SSP245", "SSP370", "SSP585")
+# Combine the data
+combined_data <- rbind(boreal_data, grasslands_data)
+# Sum the values across biomes for each SSP
+combined_sum <- combined_data %>%
+  group_by(SSP) %>%
+  summarise(
+    Lower = sum(Lower),
+    Mean = sum(Mean),
+    Upper = sum(Upper),
+    Biome = "Combined"
+  )
+
+# Combine with the original data
+final_data <- rbind(combined_data, combined_sum)
+
+library(ggplot2)
+final_data$Biome <- factor(final_data$Biome, levels = c("Tundra_Wetlands_Barren", "Boreal", "Combined"))
+
+ggplot(final_data, aes(x = SSP, y = Mean, fill = Biome)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9), width = 0.7) +
+  geom_errorbar(
+    aes(ymin = Lower, ymax = Upper),
+    position = position_dodge(width = 0.9),
+    width = 0.25,
+    color = "black",
+    linewidth = 0.5
+  ) +
+  ylim(0,12)+
+  labs(
+    title = "",
+    x = "SSP Scenario",
+    y = "Yearly Biomass Increase [ g C / m2 ]",
+    fill = "Biome"
+  ) +
+  scale_fill_manual(
+    values = c(
+      "Boreal" = "#1f78b4", 
+      "Tundra_Wetlands_Barren" = "#33a02c",
+      "Combined" = "#e31a1c"  # Red for the summed bar
+    )
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    legend.position = "bottom"
+  )
+
+
+
+library(tidyr)
+library(dplyr)
+## to just plot the amount of N g / m2 as potentially bioavailable: 
+n_fertilizer_boreal
+n_fertilizer_grasses
+
+colnames(n_fertilizer_boreal) <- c("Lower", "Mean", "Upper")
+n_fertilizer_boreal$Biome <- "Boreal"
+n_fertilizer_boreal$SSP <- c("SSP126", "SSP245", "SSP370", "SSP585")
+
+colnames(n_fertilizer_grasses) <- c("Lower", "Mean", "Upper")
+n_fertilizer_grasses$Biome <- "Tundra_Wetlands_Barren"
+n_fertilizer_grasses$SSP <- c("SSP126", "SSP245", "SSP370", "SSP585")
+# Combine the data
+combined_data <- rbind(n_fertilizer_boreal, n_fertilizer_grasses)
+# Sum the values across biomes for each SSP
+combined_sum <- combined_data %>%
+  group_by(SSP) %>%
+  summarise(
+    Lower = sum(Lower),
+    Mean = sum(Mean),
+    Upper = sum(Upper),
+    Biome = "Combined"
+  )
+
+ggplot(combined_sum, aes(x = SSP, y = Mean, fill = SSP)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9), width = 0.7) +
+  geom_errorbar(
+    aes(ymin = Lower, ymax = Upper),
+    position = position_dodge(width = 0.9),
+    width = 0.25,
+    color = "black",
+    linewidth = 0.5
+  ) +
+  ylim(0,350)+
+  labs(
+    title = "Potentially Bioavailable Nitrogen",
+    x = "SSP Scenario",
+    y = "Bioavailable Nitrogen [g / m2]",
+    fill = "Biome"
+  ) +
+  scale_fill_manual(
+    values = c(
+      "SSP126" = "red", 
+      "SSP245" = "orange",
+      "SSP370" = "darkgreen",
+      "SSP585" = "blue"  # Red for the summed bar
+    )
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "bottom"
+  )
+
+```
+## estimate N2O emissions
+
+```{r}
+
+```
+
