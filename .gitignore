@@ -3,3 +3,17 @@
 .RData
 .Ruserdata
 *.nc
+final_data/
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# R package/library files
+.Rlibrary
+.Rpackages
+
+# Temporary files
+*.log
+*.tmp
+*.bak
