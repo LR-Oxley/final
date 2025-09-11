@@ -112,6 +112,7 @@ agb_graminoids_std<-n_bioavailable_graminoids*1.78
 bgb_graminoids_mean<-n_bioavailable_graminoids*2.17
 bgb_graminoids_std<-n_bioavailable_graminoids*3.65
 
+#mean biomass in g C / m2
 biomass_graminoids_mean<-agb_graminoids_mean+bgb_graminoids_mean
 biomass_graminoids_std<-sqrt((agb_graminoids_mean)^2+(bgb_graminoids_mean^2))
 
@@ -134,7 +135,8 @@ total_biomass_boreal_mean_yearly<-total_biomass_boreal_mean/100
 total_biomass_boreal_std_yearly<-total_biomass_boreal_std/100
 
 ## add grass + boreal biomass increase together
-
+total_biomass_mean<-total_biomass_boreal_mean+total_biomass_graminoids_mean
+total_biomass_se<-sqrt(total_biomass_boreal_std^2 +total_biomass_graminoids_std^2 )
 total_biomass_mean_yearly<-total_biomass_boreal_mean_yearly+total_biomass_graminoids_mean_yearly
 total_biomass_std_yearly<-sqrt(total_biomass_boreal_std_yearly^2+total_biomass_graminoids_std_yearly^2)
 
@@ -198,7 +200,71 @@ ggplot(final_data, aes(x = SSP, y = Mean, fill = Biome)) +
 
 
 
-######
+
+
+### multiply by the region to get Arctic NPP increase due to N from permafrost thaw:
+
+total_biomass_mean
+total_biomass_se
+
+N_data <- rast("final_data/TN_30deg_corr.nc", lyr = 1)
+
+cell_area<-cellSize(N_data, mask=TRUE, lyrs=FALSE, unit="m")
+# Sum all the cell areas (total area of the grid)
+total_area <- global(cell_area, fun = "sum", na.rm = TRUE)$sum
+
+arctic_biomass_mean<-total_biomass_mean*total_area
+arctic_biomass_se<-total_biomass_boreal_std*total_area
+arctic_biomass_mean_pg<-arctic_biomass_mean/(10^15)
+arctic_biomass_se_pg<-arctic_biomass_se/(10^15)
+
+arctic_data <- as.data.frame(arctic_biomass_mean_pg) 
+colnames(arctic_data) <- c("Lower", "Mean", "Upper")
+arctic_data$SSP <- c("SSP126", "SSP245", "SSP370", "SSP585")
+
+ggplot(arctic_data, aes(x = SSP, y = Mean, , fill = SSP)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9), width = 0.7) +
+  geom_errorbar(
+    aes(ymin = Lower, ymax = Upper),
+    position = position_dodge(width = 0.9),
+    width = 0.25,
+    color = "black",
+    linewidth = 0.5
+  ) +
+  labs(
+    title = "",
+    x = "SSP Scenario",
+    y = "Biomass Increase Pg",
+  ) +
+  scale_fill_manual(
+    values = c(
+      "SSP126" = "red", 
+      "SSP245" = "orange",
+      "SSP370" = "darkgreen",
+      "SSP585" = "blue"  # Red for the summed bar
+    )
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    legend.position = "bottom"
+  )
+
+
+
+# calculate overall arctic NPP by multiplying total_graminoid_mean * graminoid area + ...
+graminoids_area_m2<-1.013084*(10^13)
+taiga_area_m2<-8.700199*(10^12)
+total_area_m2<-graminoids_area_m2+taiga_area_m2
+taiga_mean_NPP<-total_biomass_boreal_mean*taiga_area_m2
+taiga_mean_NPP_Pg<-taiga_mean_NPP/(10^15)
+graminoid_mean_NPP<-total_biomass_graminoids_mean*graminoids_area_m2
+graminoid_mean_NPP_Pg<-graminoid_mean_NPP/(10^15)
+
+total_mean_NPP_Pg<-graminoid_mean_NPP_Pg+taiga_mean_NPP_Pg
+
+
+##################################################################################################################
 
 ## actual fertilizer calculation with Keuper et al results: 
 #Root biomass
@@ -211,27 +277,21 @@ ggplot(final_data, aes(x = SSP, y = Mean, fill = Biome)) +
 #they added 8 g N / m2 fertiliser = 10 g biomass increase per g N fertilizer (N-use efficiency)
 
 #Potential root Biomass increase due to permafrost thawing 
-one_per_root <- n_fertilizer_grasses$bioavailable_N_1 * 10 
-five_per_root <- n_fertilizer_grasses$bioavailable_N_5 * 10 
-ten_per_root <-n_fertilizer_grasses$bioavailable_N_10 * 10 
-belowground<-data.frame(one_per_root,five_per_root,ten_per_root)
-rownames(belowground)<-c("SSP125", "SSP245","SSP370","SSP585")
+bgb_graminoids_mean_keuper<-n_bioavailable_graminoids*10
+
 # Above-ground biomass: 
 #Keuper et al Results: 
 #Control: 8 g / m2
 #Deep fertilised: 17 g / m2
 # --> additional biomass through fertilisation = 9 g / m2
 # they added 8 g N / m2 fertiliser = 1.125 g biomass increase per g N fertilizer
-one_per_above <- n_fertilizer_grasses$bioavailable_N_1 * 1.125 
-five_per_above <- n_fertilizer_grasses$bioavailable_N_5 * 1.125 
-ten_per_above <-n_fertilizer_grasses$bioavailable_N_10 * 1.125 
-aboveground<-data.frame(one_per_above,five_per_above,ten_per_above)
-rownames(aboveground)<-c("SSP125", "SSP245","SSP370","SSP585")
+agb_graminoids_mean_keuper <- n_bioavailable_graminoids * 1.125 
+
 # Calculate total biomass increase and convert to carbon (assuming 50% C content)
 # Assuming the dataframes are already loaded
-total_biomass_grasses <- (belowground + aboveground) *0.5
-total_biomass_increase_grasses_yearly<-total_biomass_grasses/100
-
+total_biomass_graminoids_mean_keuper <- (agb_graminoids_mean_keuper + bgb_graminoids_mean_keuper) *0.5
+total_biomass_graminoids_mean_keuper_yearly<-total_biomass_graminoids_mean_keuper/100
+total_biomass_graminoids_mean_yearly
 
 #### for boreal fertilizer calculation: 
 #average N-use efficiency for NPK fertilizer: 
@@ -280,25 +340,26 @@ ggplot(tidy_data, aes(x = SSP, y = biomass_increase, fill = Bioavailability)) +
 
 
 
-
+##################################################################################################
 
 library(tidyr)
 library(dplyr)
 
 ## to just plot the amount of N g / m2 as potentially bioavailable: 
 
-n_bioavailable_boreal
-n_bioavailable_graminoids
+n_bioavailable_boreal_yr<-n_bioavailable_boreal/100
+n_bioavailable_graminoids_yr<-n_bioavailable_graminoids/100
+n_bioavailable_boreal_kg_ha_yr<-n_bioavailable_boreal_yr*10
+n_bioavailable_graminoids_kg_ha_yr<-n_bioavailable_graminoids_yr*10
+colnames(n_bioavailable_boreal_kg_ha_yr) <- c("Lower", "Mean", "Upper")
+n_bioavailable_boreal_kg_ha_yr$Biome <- "Boreal"
+n_bioavailable_boreal_kg_ha_yr$SSP <- c("SSP126", "SSP245", "SSP370", "SSP585")
 
-colnames(n_bioavailable_boreal) <- c("Lower", "Mean", "Upper")
-n_bioavailable_boreal$Biome <- "Boreal"
-n_bioavailable_boreal$SSP <- c("SSP126", "SSP245", "SSP370", "SSP585")
-
-colnames(n_bioavailable_graminoids) <- c("Lower", "Mean", "Upper")
-n_bioavailable_graminoids$Biome <- "Graminoids"
-n_bioavailable_graminoids$SSP <- c("SSP126", "SSP245", "SSP370", "SSP585")
+colnames(n_bioavailable_graminoids_kg_ha_yr) <- c("Lower", "Mean", "Upper")
+n_bioavailable_graminoids_kg_ha_yr$Biome <- "Graminoids"
+n_bioavailable_graminoids_kg_ha_yr$SSP <- c("SSP126", "SSP245", "SSP370", "SSP585")
 # Combine the data
-combined_data <- rbind(n_bioavailable_boreal, n_bioavailable_graminoids)
+combined_data <- rbind(n_bioavailable_boreal_kg_ha_yr, n_bioavailable_graminoids_kg_ha_yr)
 # Sum the values across biomes for each SSP
 combined_sum <- combined_data %>%
   group_by(SSP) %>%
@@ -309,8 +370,6 @@ combined_sum <- combined_data %>%
     Biome = "Combined"
   )
 
-combined_kg_ha <- combined_sum %>%
-  mutate(across(c(Lower, Mean, Upper), ~ . * 10))
 
 ggplot(combined_sum, aes(x = SSP, y = Mean, fill = SSP)) +
   geom_bar(stat = "identity", position = position_dodge(width = 0.9), width = 0.7) +
@@ -321,11 +380,11 @@ ggplot(combined_sum, aes(x = SSP, y = Mean, fill = SSP)) +
     color = "black",
     linewidth = 0.5
   ) +
-  ylim(0,350)+
+  ylim(0,40)+
   labs(
     title = "Potentially Bioavailable Nitrogen",
     x = "SSP Scenario",
-    y = "Bioavailable Nitrogen [g / m2]",
+    y = "Bioavailable Nitrogen [kg/ha*yr]",
     fill = "Biome"
   ) +
   scale_fill_manual(
@@ -384,11 +443,11 @@ ggplot(final_data, aes(x = SSP, y = Mean, fill = Biome)) +
     color = "black",
     linewidth = 0.5
   ) +
-  ylim(0,350)+
+  ylim(0,40)+
   labs(
-    title = "Potentially Bioavailable Nitrogen",
+    title = "Potentially Bioavailable Nitrogen per Year",
     x = "SSP Scenario",
-    y = "Bioavailable Nitrogen [g / m2]",
+    y = "Bioavailable Nitrogen [kg / ha * yr]",
     fill = "Biome"
   ) +
   scale_fill_manual(

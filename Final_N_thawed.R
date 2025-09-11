@@ -8,10 +8,11 @@ ALD <- rast("final_data/mean_ssp126_corr.nc")
 N_data <- rast("final_data/TN_30deg_corr.nc", lyr = 1)
 LC <- rast("final_data/LC_remapnn_corr.nc")
 
-cell_area<-cellSize(LC, mask=TRUE, lyrs=FALSE, unit="m")
+cell_area<-cellSize(N_data, mask=TRUE, lyrs=FALSE, unit="m")
 # Sum all the cell areas (total area of the grid)
 total_area <- global(cell_area, fun = "sum", na.rm = TRUE)$sum
-
+print(total_area)
+plot(N_data)
 # Print the total area (in m²)
 print(N_data)
 plot(ALD[[250]])
@@ -30,7 +31,7 @@ tundra_mask <- as.numeric(LC %in% c(6,7,10))
 wetlands_mask <- as.numeric(LC == 11)
 other<- as.numeric(LC %in% c(12,13,14))
 barren_mask <- as.numeric(LC %in% c(15,16))
-plot(taiga_mask)
+plot(other)
 total_mask<-barren_mask+wetlands_mask+tundra_mask+taiga_mask
 
 # Land cover parameters
@@ -51,18 +52,29 @@ taiga_N <- normalize_N(N_data * taiga_mask, params$taiga['a'], params$taiga['b']
 tundra_N <- normalize_N(N_data * tundra_mask, params$tundra['a'], params$tundra['b'], params$tundra['k'])
 barren_N <- normalize_N(N_data * barren_mask, params$barren['a'], params$barren['b'], params$barren['k'])
 wetlands_N <- (N_data * wetlands_mask) / 3
+plot(taiga_N)
+
 
 # Compute thawed nitrogen
 compute_thawed_N <- function(ALD, N, a, b, k) {
   A_ALD <- a * ALD + (b / k) * (1 - exp(-k * ALD))
   ifel(N == 0, NA, N * A_ALD)  # Avoid multiplying by zero
 }
-
+graminoids_N<-barren_N+wetlands_N+tundra_N
+graminoids_N[graminoids_N == 0] <- NA
+plot(graminoids_N)
 taiga_N[taiga_N == 0] <- NA
 tundra_N[tundra_N == 0] <- NA
 wetlands_N[wetlands_N == 0] <- NA
 barren_N[barren_N == 0] <- NA
-plot(taiga_N)
+
+cell_area<-cellSize(graminoids_N, mask=TRUE, lyrs=FALSE, unit="m")
+# Sum all the cell areas (total area of the grid)
+total_area <- global(cell_area, fun = "sum", na.rm = TRUE)$sum
+cell_area<-cellSize(taiga_N, mask=TRUE, lyrs=FALSE, unit="m")
+# Sum all the cell areas (total area of the grid)
+total_area <- global(cell_area, fun = "sum", na.rm = TRUE)$sum
+
 total_N<-barren_N+wetlands_N+tundra_N+taiga_N
 
 # Compute thawed nitrogen
