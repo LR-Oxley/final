@@ -197,6 +197,32 @@ plot(1:251, total_area_all_years$sum, type = "l", main = "Total Arctic Area Over
      xlab = "Year", ylab = "Total Area (m²)")
 
 
+#############################################################################
+## to look at 2m limit
+library(terra)
+library(here)
+# Load NetCDF files
+arctic_N <- rast("thawed_N_individual_biomes/thawed_total_ssp585_2m_limit.nc")
+plot(arctic_N[[250]])
+# Compute cell areas for each year
+cell_areas_all_years <- rast(lapply(1:nlyr(arctic_N), function(i) {
+  cellSize(arctic_N[[i]], mask = TRUE, unit = "m")
+}))
+
+# Compute weighted thawed nitrogen for each year
+weighted_thawed_all_years <- arctic_N * cell_areas_all_years
+
+# Compute total weighted thawed nitrogen (sum over all cells)
+total_weighted_thawed_arctic <- global(weighted_thawed_all_years, "sum", na.rm = TRUE)
+
+# Compute total area for each year
+total_area_all_years_arctic <- global(cell_areas_all_years, "sum", na.rm = TRUE)
+
+# Compute the final weighted average thawed nitrogen (kg N / m²)
+weighted_mean_thawed_arctic <- total_weighted_thawed_arctic / total_area_all_years_arctic
+write.csv(weighted_mean_thawed_taiga, "final_data/weighted_mean_thawed_arctic_585.csv")
+
+
 
 
 

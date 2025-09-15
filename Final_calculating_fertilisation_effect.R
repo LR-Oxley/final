@@ -263,6 +263,74 @@ graminoid_mean_NPP_Pg<-graminoid_mean_NPP/(10^15)
 
 total_mean_NPP_Pg<-graminoid_mean_NPP_Pg+taiga_mean_NPP_Pg
 
+taiga_mean_NPP_yr<-total_biomass_boreal_mean_yearly*taiga_area_m2
+taiga_mean_NPP_Pg_yr<-taiga_mean_NPP_yr/(10^15)
+graminoid_mean_NPP_yr<-total_biomass_graminoids_mean_yearly*graminoids_area_m2
+graminoid_mean_NPP_Pg_yr<-graminoid_mean_NPP_yr/(10^15)
+
+total_mean_NPP_Pg_yr<-graminoid_mean_NPP_Pg_yr+taiga_mean_NPP_Pg_yr
+
+# Your data preparation 
+boreal_data <- as.data.frame(taiga_mean_NPP_Pg_yr) 
+colnames(boreal_data) <- c("Lower", "Mean", "Upper")
+boreal_data$Biome <- "Boreal"
+boreal_data$SSP <- c("SSP126", "SSP245", "SSP370", "SSP585")
+
+grasslands_data <- as.data.frame(graminoid_mean_NPP_Pg_yr)
+colnames(grasslands_data) <- c("Lower", "Mean", "Upper")
+grasslands_data$Biome <- "Graminoids"
+grasslands_data$SSP <- c("SSP126", "SSP245", "SSP370", "SSP585")
+# Combine the data
+combined_data <- rbind(boreal_data, grasslands_data)
+library(dplyr)
+# Sum the values across biomes for each SSP
+combined_sum <- combined_data %>%
+  group_by(SSP) %>%
+  summarize(
+    Lower = mean(Lower),
+    Mean = mean(Mean),
+    Upper = mean(Upper),
+    Biome = "Mean"
+  )
+
+# Combine with the original data
+final_data <- rbind(combined_data, combined_sum)
+final_data_Teragram_C <- data.frame(
+  Lower_Tg = final_data$Lower * 1000,
+  Mean_Tg  = final_data$Mean  * 1000,
+  Upper_Tg = final_data$Upper * 1000
+)
+library(ggplot2)
+final_data_Teragram_C$Biome <- factor(final_data$Biome, levels = c("Graminoids", "Boreal", "Mean"))
+final_data_Teragram_C$SSP <- c("SSP126", "SSP245", "SSP370", "SSP585")
+
+ggplot(final_data_Teragram_C, aes(x = SSP, y = Mean_Tg, fill = Biome)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9), width = 0.7) +
+  geom_errorbar(
+    aes(ymin = Lower_Tg, ymax = Upper_Tg),
+    position = position_dodge(width = 0.9),
+    width = 0.25,
+    color = "black",
+    linewidth = 0.5
+  ) +
+  labs(
+    title = "",
+    x = "SSP Scenario",
+    y = "Biomass Increase [ Teragram C * yr-1 ]",
+    fill = "Biome"
+  ) +
+  scale_fill_manual(
+    values = c(
+      "Boreal" = "#1f78b4", 
+      "Graminoids" = "#33a02c",
+      "Mean" = "#e31a1c"  # Red for the summed bar
+    )
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    legend.position = "bottom"
+  )
 
 ##################################################################################################################
 
@@ -351,27 +419,36 @@ n_bioavailable_boreal_yr<-n_bioavailable_boreal/100
 n_bioavailable_graminoids_yr<-n_bioavailable_graminoids/100
 n_bioavailable_boreal_kg_ha_yr<-n_bioavailable_boreal_yr*10
 n_bioavailable_graminoids_kg_ha_yr<-n_bioavailable_graminoids_yr*10
+
 colnames(n_bioavailable_boreal_kg_ha_yr) <- c("Lower", "Mean", "Upper")
 n_bioavailable_boreal_kg_ha_yr$Biome <- "Boreal"
 n_bioavailable_boreal_kg_ha_yr$SSP <- c("SSP126", "SSP245", "SSP370", "SSP585")
 
+colnames(n_bioavailable_boreal_yr) <- c("Lower", "Mean", "Upper")
+n_bioavailable_boreal_yr$Biome <- "Boreal"
+n_bioavailable_boreal_yr$SSP <- c("SSP126", "SSP245", "SSP370", "SSP585")
+
 colnames(n_bioavailable_graminoids_kg_ha_yr) <- c("Lower", "Mean", "Upper")
 n_bioavailable_graminoids_kg_ha_yr$Biome <- "Graminoids"
 n_bioavailable_graminoids_kg_ha_yr$SSP <- c("SSP126", "SSP245", "SSP370", "SSP585")
+
+colnames(n_bioavailable_graminoids_yr) <- c("Lower", "Mean", "Upper")
+n_bioavailable_graminoids_yr$Biome <- "Graminoids"
+n_bioavailable_graminoids_yr$SSP <- c("SSP126", "SSP245", "SSP370", "SSP585")
 # Combine the data
-combined_data <- rbind(n_bioavailable_boreal_kg_ha_yr, n_bioavailable_graminoids_kg_ha_yr)
+combined_data <- rbind(n_bioavailable_boreal_yr, n_bioavailable_graminoids_yr)
 # Sum the values across biomes for each SSP
-combined_sum <- combined_data %>%
+combined_mean <- combined_data %>%
   group_by(SSP) %>%
   summarise(
-    Lower = sum(Lower),
-    Mean = sum(Mean),
-    Upper = sum(Upper),
-    Biome = "Combined"
+    Lower = mean(Lower),
+    Mean = mean(Mean),
+    Upper = mean(Upper),
+    Biome = "Mean"
   )
 
 
-ggplot(combined_sum, aes(x = SSP, y = Mean, fill = SSP)) +
+ggplot(combined_mean, aes(x = SSP, y = Mean, fill = SSP)) +
   geom_bar(stat = "identity", position = position_dodge(width = 0.9), width = 0.7) +
   geom_errorbar(
     aes(ymin = Lower, ymax = Upper),
@@ -380,7 +457,7 @@ ggplot(combined_sum, aes(x = SSP, y = Mean, fill = SSP)) +
     color = "black",
     linewidth = 0.5
   ) +
-  ylim(0,40)+
+  ylim(0,3)+
   labs(
     title = "Potentially Bioavailable Nitrogen",
     x = "SSP Scenario",
@@ -428,11 +505,13 @@ ggplot(combined_kg_ha, aes(x = SSP, y = Mean, fill = SSP)) +
   theme(
     legend.position = "bottom"
   )
-# Combine with the original data
-final_data <- rbind(combined_data, combined_sum)
+
+
+# Combine with the mean arctic data 
+final_data <- rbind(combined_data, n_bioavailable_arctic_mean_yr)
 
 library(ggplot2)
-final_data$Biome <- factor(final_data$Biome, levels = c("Graminoids", "Boreal", "Combined"))
+final_data$Biome <- factor(final_data$Biome, levels = c("Boreal", "Graminoids", "Mean"))
 
 ggplot(final_data, aes(x = SSP, y = Mean, fill = Biome)) +
   geom_bar(stat = "identity", position = position_dodge(width = 0.9), width = 0.7) +
@@ -443,7 +522,7 @@ ggplot(final_data, aes(x = SSP, y = Mean, fill = Biome)) +
     color = "black",
     linewidth = 0.5
   ) +
-  ylim(0,40)+
+  ylim(0,3)+
   labs(
     title = "Potentially Bioavailable Nitrogen per Year",
     x = "SSP Scenario",
@@ -454,7 +533,7 @@ ggplot(final_data, aes(x = SSP, y = Mean, fill = Biome)) +
     values = c(
       "Boreal" = "#1f78b4", 
       "Graminoids" = "#33a02c",
-      "Combined" = "#e31a1c"  # Red for the summed bar
+      "Mean" = "#e31a1c"  # Red for the summed bar
     )
   ) +
   theme_minimal() +
@@ -462,6 +541,78 @@ ggplot(final_data, aes(x = SSP, y = Mean, fill = Biome)) +
     legend.position = "bottom"
   )
 
+
+
+
+######## to just plot what is potentially bioavailable for whole arctic region ########
+
+thawed_N_arctic<-read.csv("final_data/weighted_mean_thawed_arctic_2m.csv") 
+
+# Calculate means for each period
+results <- list(
+  period_1880_1900 = colMeans(thawed_N_arctic[thawed_N_arctic$Year %in% 1880:1900, 2:5]),
+  period_1990_2010 = colMeans(thawed_N_arctic[thawed_N_arctic$Year %in% 1990:2010, 2:5]),
+  period_2080_2100 = colMeans(thawed_N_arctic[thawed_N_arctic$Year %in% 2080:2100, 2:5])
+)
+
+# Print the results
+results
+
+# Calculate mean values for each period and SSP
+mean_1990_2010 <- colMeans(thawed_N_arctic[thawed_N_arctic$Year %in% 1990:2010, 2:5])
+mean_2080_2100 <- colMeans(thawed_N_arctic[thawed_N_arctic$Year %in% 2080:2100, 2:5])
+
+# Calculate the difference (additional Nin soil due to permafrost thawing (difference 2080-2100 to 1990-2010)):
+# this is in kg / m2
+additional_N <- mean_2080_2100 - mean_1990_2010
+
+# in g/ m2: 
+add_N_gm2<-additional_N*1000
+
+# considering 1, 5 and 10% bioavailability: 
+bioavailable_N_1<-add_N_gm2*0.01
+bioavailable_N_5<-add_N_gm2*0.05
+bioavailable_N_10<-add_N_gm2*0.1
+
+n_bioavailable_arctic<-data.frame(bioavailable_N_1, bioavailable_N_5, bioavailable_N_10)
+
+n_bioavailable_arctic_mean_yr<-n_bioavailable_arctic/100
+
+n_bioavailable_arctic_std_yr<-n_bioavailable_arctic_std/100
+n_bioavailable_arctic_mean_kg_ha_yr<-n_bioavailable_arctic_mean_yr*10
+colnames(n_bioavailable_arctic_mean_yr) <- c("Lower", "Mean", "Upper")
+n_bioavailable_arctic_mean_yr$Biome<-c("Mean", "Mean","Mean","Mean")
+n_bioavailable_arctic_mean_yr$SSP <- c("SSP126", "SSP245", "SSP370", "SSP585")
+rownames(n_bioavailable_arctic_mean_yr)<-c("SSP126", "SSP245", "SSP370", "SSP585")
+
+ggplot(n_bioavailable_arctic_mean_yr, aes(x = SSP, y = Mean, fill = SSP)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9), width = 0.7) +
+  geom_errorbar(
+    aes(ymin = Lower, ymax = Upper),
+    position = position_dodge(width = 0.9),
+    width = 0.25,
+    color = "black",
+    linewidth = 0.5
+  ) +
+  ylim(0,3)+
+  labs(
+    title = "Potentially Bioavailable Nitrogen over Arctic",
+    x = "SSP Scenario",
+    y = "Bioavailable Nitrogen [g/m2*yr]",
+    fill = "Biome"
+  ) +
+  scale_fill_manual(
+    values = c(
+      "SSP126" = "red", 
+      "SSP245" = "orange",
+      "SSP370" = "darkgreen",
+      "SSP585" = "blue"  # Red for the summed bar
+    )
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "bottom"
+  )
 
 
 ##################################################
