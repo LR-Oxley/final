@@ -1,52 +1,86 @@
 ## plot thawed nitrogen maps
+# figures 1 a and b
+
 library(terra)
 library(ggplot2)
 library(dplyr)
 library(RColorBrewer)
-setwd("/Users/laraoxley/Desktop/data/CMIP6_corr/N_asymptotic")
-# Load the NetCDF file
-thawedN <- rast("thawed_total_ssp370_2m_limit.nc")  # replace with your actual file name
+library(here)
+getwd()
+library(sf)
+library(viridis)
+library(rnaturalearth)
+library(raster)
+library(rnaturalearthdata)
+library(ggspatial)
+library(tidyr)
+library(viridis)
 
-# Check layer time (optional, in case time is part of the layer names)
-names(thawedN)  # You might see names like "thawed_N_1850", "thawed_N_1851", etc.
+
+# fig 1a) 
+palmtag <- rast("final_data/TN_30deg_corr.nc", lyr=1)
+df_palmtag <- as.data.frame(palmtag, xy = TRUE, na.rm = TRUE)
+## for a flat circular projection
+# Step 1: Filter the data to include only the Arctic region
+arctic_df <- subset(df_palmtag)
+
+# Step 2: Convert the filtered data to an sf object
+arctic_sf <- st_as_sf(arctic_df, coords = c("x", "y"), crs = 4326)  # WGS84
+
+# Step 3: Define the LAEA projection centered on the North Pole
+laea_crs <- "+proj=laea +lat_0=90 +lon_0=30 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs"
+
+# Step 4: Reproject the data into the LAEA projection
+arctic_sf_laea <- st_transform(arctic_sf, crs = laea_crs)
+bbox <- st_bbox(arctic_sf_laea)
+print(bbox)
+# Define custom limits for the plot
+xlim <- c(-4500000, 4500000)  # Adjust these values based on your data
+ylim <- c(-4500000, 4500000)  # Adjust these values based on your data
+coastlines <- ne_coastline(scale = "medium", returnclass = "sf")
+
+# Step 5: Reproject the coastlines to match the LAEA projection
+coastlines_laea <- st_transform(coastlines, crs = laea_crs)
+arctic_sf_laea <- arctic_sf_laea[!is.na(arctic_sf_laea$TN), ]
+# Step 6: Create the plot with the LAEA projection
+ggplot() +
+  geom_sf(data = arctic_sf_laea, aes(color = TN), size = 0.2) +
+  scale_color_viridis_c(
+    name = "Soil N (kg N / m2)",
+    limits = c(0, 8)  # Show only min and max
+  )+
+  geom_sf(data = coastlines_laea, color = "black", size = 0.5) +  # Add reprojected coastlines
+  coord_sf(crs = laea_crs, xlim = xlim, ylim = ylim) +  # LAEA projection with custom limits
+  theme_minimal() +
+  theme(legend.position = "right") +  # Remove legend
+  labs(
+    x = "Longitude", y = "Latitude"
+  )
+
+
+
+# Fig 1b)
+
+# Load the NetCDF file
+thawedN <- rast("thawed_total_ssp585_new.nc")  # replace with your actual file name
 
 # Extract years from names if necessary
-years <- 1850:2100  # adjust if needed
+years <- 1850:2099  # adjust if needed
 names(thawedN) <- paste0("Y", years)
 
 # Subset for each time slice
 thawedN_1880_1900 <- thawedN[[which(years %in% 1880:1900)]]
-thawedN_1990_2010 <- thawedN[[which(years %in% 1990:2010)]]
-thawedN_2080_2100 <- thawedN[[which(years %in% 2080:2100)]]
+thawedN_2000_2020 <- thawedN[[which(years %in% 2000:2019)]]
+thawedN_2080_2100 <- thawedN[[which(years %in% 2080:2099)]]
 
-
-
-# difference preindustrial - present day - future
-delta_present_day<-thawedN_1990_2010-thawedN_1880_1900
-delta_future<-thawedN_2080_2100-thawedN_1880_1900
-plot(thawedN_1880_1900[[21]])
+# increase in soil N due to permafrost thaw: 
+thawedN_increase<-thawedN_2080_2100-thawedN_1990_2010
 # Compute mean across years
 mean_1880_1900 <- mean(thawedN_1880_1900, na.rm = TRUE)
-mean_1990_2010 <- mean(delta_present_day, na.rm = TRUE)
-mean_2080_2100 <- mean(delta_future, na.rm = TRUE)
+mean_2000_2020 <- mean(thawedN_2000_2020, na.rm = TRUE)
+mean_2080_2100 <- mean(thawedN_2080_2100, na.rm = TRUE)
 
-# Convert units from kg/m² to kg/ha
-mean_1880_1900 <- mean_1880_1900 * 10000
-mean_1990_2010 <- mean_1990_2010 * 10000
-mean_2080_2100 <- mean_2080_2100 * 10000
-mean_1990_2010_5per <- mean_1990_2010 * 0.05
-mean_2080_2100_5per <- mean_2080_2100 * 0.05
-#for annualized mean
-mean_1990_2010_5per <- mean_1990_2010 / 20
-mean_2080_2100_5per <- mean_2080_2100 / 20
-
-
-# Stack them for plotting
-all_means <- c(mean_1880_1900, mean_1990_2010, mean_2080_2100)
-names(all_means) <- c("1880-1900", "1990-2010", "2080-2100")
-
-# Plot using terra
-plot(all_means, main = names(all_means), col = rev(terrain.colors(20)))
+mean_thawed_N<- mean(thawedN_increase, na.rm = TRUE)
 
 df_plot <- function(r, period) {
   df <- as.data.frame(r, xy = TRUE)
@@ -56,37 +90,13 @@ df_plot <- function(r, period) {
 }
 
 df_1880 <- df_plot(mean_1880_1900, "1880–1900")
-df_1990 <- df_plot(mean_1990_2010, "1990–2010")
+df_2000 <- df_plot(mean_2000_2020, "2000–2020")
 df_2080 <- df_plot(mean_2080_2100, "2080–2100")
-df_1990_5per <- df_plot(mean_1990_2010_5per, "1990–2010")
-df_2080_5per <- df_plot(mean_2080_2100_5per, "2080–2100")
-
-# Calculate increase in thawed nitrogen from 1990–2010 to 2080–2100
-delta_thawedN <- mean_2080_2100_5per - mean_1990_2010_5per
-
-# Convert raster to data frame for ggplot
-delta_df <- as.data.frame(delta_thawedN, xy = TRUE, na.rm = TRUE)
-colnames(delta_df) <- c("x", "y", "thawed_N")
-
-ggplot(delta_df, aes(x = x, y = y, fill = change)) +
-  geom_tile() +
-  scale_fill_viridis_c(name = "Δ kg N/ha") +
-  labs(
-    title = "Increase in Thawed Nitrogen (1990–2010 to 2080–2100)",
-    x = "Longitude", y = "Latitude"
-  ) +
-  theme_minimal()
-
-ggplot(delta_df, aes(x = x, y = y, fill = thawed_N)) +
-  geom_tile() +
-  scale_fill_viridis_c(name = "Thawed N") +
-  theme_minimal() +
-  labs(title = "Mean Thawed Nitrogen in Arctic Soil")
-
-
+df_thawedN<-df_plot(mean_thawed_N, "2080–2100")
+mean(df_thawedN$thawed_N)
 ## for a flat circular projection
 # Step 1: Filter the data to include only the Arctic region
-arctic_df <- subset(df_2080_5per)
+arctic_df <- subset(df_2000)
 
 # Step 2: Convert the filtered data to an sf object
 arctic_sf <- st_as_sf(arctic_df, coords = c("x", "y"), crs = 4326)  # WGS84
@@ -108,18 +118,23 @@ coastlines_laea <- st_transform(coastlines, crs = laea_crs)
 arctic_sf_laea <- arctic_sf_laea[!is.na(arctic_sf_laea$thawed_N), ]
 # Step 6: Create the plot with the LAEA projection
 ggplot() +
-  geom_sf(data = arctic_sf_laea, aes(color = thawed_N), size = 0.5) +
+  geom_sf(data = arctic_sf_laea, aes(color = thawed_N), size = 0.2) +
   scale_color_viridis_c(
-    name = "Soil N (kg N / ha)",
-    limits = c(0, 5000)  # Show only min and max
+    name = "Soil N (kg N / m2)",
+    limits = c(0, 7)  # Show only min and max
   )+
-  geom_sf(data = coastlines_laea, color = "black", size = 0.2) +  # Add reprojected coastlines
-  coord_sf(crs = laea_crs, xlim = xlim, ylim = ylim) +  # LAEA projection with custom limits
+  geom_sf(data = coastlines_laea, color = "black", size = 0.5) +  
+  coord_sf(crs = laea_crs, xlim = xlim, ylim = ylim) +  
   theme_minimal() +
   theme(legend.position = "right") +  # Remove legend
   labs(
-    x = "Longitude", y = "Latitude"
+    x = "Longitude", y = "Latitude",
+    title="Estimated present day pan-Arctic nitrogen storage (kg / m2)"
   )
+
+
+
+
 
 
 # Calculate increase in thawed nitrogen from 1990–2010 to 2080–2100
@@ -138,19 +153,7 @@ ggplot(delta_df, aes(x = x, y = y, fill = change)) +
   ) +
   theme_minimal()
 
-library(terra)
-library(ggplot2)
-library(sf)
-library(viridis)
-library(rnaturalearth)
-library(ggplot2)
-library(raster)
-library(rnaturalearth)
-library(rnaturalearthdata)
-library(ggspatial)
-library(tidyr)
-library(viridis)
-setwd("/Users/laraoxley/Desktop/data/CMIP6_corr/N_asymptotic/")
+################################################################################
 
 thawed_N <- rast("total_thawed_N_5m_ESA.nc")
 

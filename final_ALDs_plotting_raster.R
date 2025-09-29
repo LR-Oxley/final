@@ -1,13 +1,66 @@
-## Plotting Active layer depth increase, relative to preindustrial (1880-1900)
-## plot active layer depth increase
+library(terra)
+library(here)
 library(ggplot2)
-library(dplyr)
-library(zoo)
-#install.packages("zoo")
-library(tidyr)
+getwd()
+# Load NetCDF thawed nitrogen rasters
+rast_mean_585 <- rast("final_data/mean_ssp585_corr_new.nc")
+rast_std_585<- rast("final_data/std_ssp585_corr_new.nc")
+plot(rast_std_585[[200]])
+# mean ALD all the cell areas (total area of the grid)
+mean_ssp585 <- global(rast_mean_585, fun = "mean", na.rm = TRUE)
+std_ssp585<- global(rast_std_585, fun = "sd", na.rm = TRUE)
 
-setwd("/Users/laraoxley/Desktop/data/CMIP6/final/final_data")
-df<- read.csv("ALD_all_scenarios.csv")
+plot(rast_mean_585[[1]])
+
+# Load NetCDF thawed nitrogen rasters
+rast_mean_370 <- rast("final_data/mean_ssp370_corr_new.nc")
+rast_std_370<- rast("final_data/std_ssp370_corr_new.nc")
+# mean ALD all the cell areas (total area of the grid)
+mean_ssp370 <- global(rast_mean_370, fun = "mean", na.rm = TRUE)
+std_ssp370<- global(rast_std_370, fun = "std", na.rm = TRUE)
+
+
+# Load NetCDF thawed nitrogen rasters
+rast_mean_245 <- rast("final_data/mean_ssp245_corr_new.nc")
+rast_std_245 <- rast("final_data/std_ssp245_corr_new.nc")
+# mean ALD all the cell areas (total area of the grid)
+mean_ssp245 <- global(rast_mean_245, fun = "mean", na.rm = TRUE)
+std_ssp245<- global(rast_std_245, fun = "std", na.rm = TRUE)
+plot(mean_ssp245)
+
+# Load NetCDF thawed nitrogen rasters
+rast_mean_126 <- rast("final_data/mean_ssp126_corr_new.nc")
+rast_std_126 <- rast("final_data/std_ssp126_corr_new.nc")
+# mean ALD all the cell areas (total area of the grid)
+mean_ssp126 <- global(rast_mean_126, fun = "mean", na.rm = TRUE)
+std_ssp126<- global(rast_std_126, fun = "std", na.rm = TRUE)
+plot(mean_ssp245)
+
+df<-data.frame(mean_ssp585, std_ssp585)
+df$Year<-rep(1850:2099)
+names(df)<-c("mean_585", "std_585", "Year")
+ggplot(df, aes(x = Year)) +
+  # Add shaded area for variance (mean ± 1 standard deviation)
+  geom_ribbon(aes(ymin = mean_585 - std_585, ymax = mean_585 + std_585), fill = "grey80", alpha = 0.5) +
+  # Plot the mean line with colors changing based on Year
+  geom_line(aes(y = mean_585), color = "green", linewidth = 0.8) +
+  labs(x = "Year", y = "ALD [m]", title = "ALD all scenarios") +
+  xlim(1850, 2100) +
+  theme_bw() +
+  theme(legend.position = "none")  # Remove the legend if not needed
+  
+
+
+df<-data.frame(mean_ssp585, mean_ssp370, mean_ssp245, mean_ssp126, std_ssp585, std_ssp370, std_ssp245, std_ssp126)
+df$Year<-rep(1850:2099)
+names(df)<-c("mean_585", "mean_370", "mean_245", "mean_126", "std_585", "std_370", "std_245","std_126", "Year")
+
+write.csv(df, "final_results/ALD_final.csv")
+
+
+
+df<-read.csv("final_results/ALD_final.csv")
+
 # Function to compute anomaly for a given SSP scenario
 compute_anomaly <- function(df, mean_col, std_col) {
   # Select relevant columns
@@ -116,7 +169,7 @@ ggplot(long_data, aes(x = Year, y = Mean_ALD, group = SSP)) +
   geom_vline(xintercept = 2015, linetype = "dashed", color = "black") +
   
   # Labels and title
-  labs(x = "Year", y = "ALD [m]", title = "Pan-Arctic maximum active layer depth, relative to 1880-1900", 
+  labs(x = "Year", y = "ALD [m]", title = "Pan-Arctic max active layer depth, relative to 1880-1900", 
        color = "SSP Scenario", fill = "SSP Scenario") +
   
   # Color scales
@@ -133,6 +186,50 @@ ggplot(long_data, aes(x = Year, y = Mean_ALD, group = SSP)) +
 
 
 
-### Calculating how much Nitrogen will be in the active layer following active layer depth increase
 
+### calculate mean ALD
+library(dplyr)
+
+# Example dataframe (replace with your actual data)
+df <- data.frame(df)
+
+# Compute mean ALD for each SSP and overall mean for the two periods
+mean_ALD_1880_1900 <- df %>%
+  filter(Year >= 1890 & Year <= 1900) %>%
+  summarise(across(starts_with("mean_"), mean)) %>%
+  mutate(Mean_All_SSPs = rowMeans(.))
+
+mean_ALD_1990_2010 <- df %>%
+  filter(Year >= 2004 & Year <= 2014) %>%
+  summarise(across(starts_with("mean_"), mean)) %>%
+  mutate(Mean_All_SSPs = rowMeans(.))
+
+mean_ALD_2080_2100 <- df %>%
+  filter(Year >= 2080 & Year <= 2100) %>%
+  summarise(across(starts_with("mean_"), mean)) %>%
+  mutate(Mean_All_SSPs = rowMeans(.))
+
+# Print results
+print(mean_ALD_1880_1900)
+print(mean_ALD_1990_2010)
+print(mean_ALD_2080_2100)
+
+# Compute percentage increase
+percentage_increase <- ((mean_ALD_1990_2010 - mean_ALD_1880_1900) / mean_ALD_1880_1900) * 100
+# Compute percentage increase
+percentage_increase <- ((mean_ALD_2080_2100 - mean_ALD_1990_2010) / mean_ALD_1990_2010) * 100
+
+# Print results
+print(percentage_increase)
+
+# Compute difference in cm 
+mean_ALD_1880_1900_cm<-mean_ALD_1880_1900*100
+mean_ALD_1990_2010_cm<-mean_ALD_1990_2010*100
+mean_ALD_2080_2100_cm<-mean_ALD_2080_2100*100
+
+diff_pre_industrial_present <- mean_ALD_1990_2010_cm-mean_ALD_1880_1900_cm
+diff_present_future<-mean_ALD_2080_2100_cm-mean_ALD_1990_2010_cm
+
+# past: 34.5 to 38.5 cm increase in 100 years: 0.3 cm / year
+# future: 100 to 250cm increase in 100 years: 1 to 2.5 cm / year
 

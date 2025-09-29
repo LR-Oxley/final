@@ -40,12 +40,12 @@ additional_N <- mean_2080_2100 - mean_1990_2010
 # in g/ m2: 
 add_N_gm2<-additional_N*1000
 
-# considering 1, 5 and 10% bioavailability: 
-bioavailable_N_1<-add_N_gm2*0.01
+# considering 5 and 10 and 15% bioavailability: 
 bioavailable_N_5<-add_N_gm2*0.05
 bioavailable_N_10<-add_N_gm2*0.1
+bioavailable_N_15<-add_N_gm2*0.15
 
-n_bioavailable_graminoids<-data.frame(bioavailable_N_1, bioavailable_N_5, bioavailable_N_10)
+n_bioavailable_graminoids<-data.frame(bioavailable_N_5, bioavailable_N_10, bioavailable_N_15)
 n_bioavailable_graminoids<-n_bioavailable_graminoids[c(1:4),]
 #for each SSP scenario
 thawed_N_taiga_126<-read.csv("final_data/weighted_mean_thawed_taiga_mean_ssp126.csv") 
@@ -86,11 +86,11 @@ additional_N <- mean_2080_2100 - mean_1990_2010
 # in g/ m2: 
 add_N_gm2<-additional_N*1000
 
-# considering 1, 5 and 10% bioavailability: 
-bioavailable_N_1<-add_N_gm2*0.01
+# considering 5 and 10 and 15% bioavailability: 
 bioavailable_N_5<-add_N_gm2*0.05
 bioavailable_N_10<-add_N_gm2*0.1
-n_bioavailable_boreal<-data.frame(bioavailable_N_1, bioavailable_N_5, bioavailable_N_10)
+bioavailable_N_15<-add_N_gm2*0.15
+n_bioavailable_boreal<-data.frame(bioavailable_N_5, bioavailable_N_10, bioavailable_N_15)
 
 # need boreal fertilizer to be in kg / ha, therefore
 # 1 g/m2 = 10 kg/ ha
@@ -412,6 +412,7 @@ ggplot(tidy_data, aes(x = SSP, y = biomass_increase, fill = Bioavailability)) +
 
 library(tidyr)
 library(dplyr)
+library(ggplot2)
 
 ## to just plot the amount of N g / m2 as potentially bioavailable: 
 
@@ -461,7 +462,7 @@ ggplot(combined_mean, aes(x = SSP, y = Mean, fill = SSP)) +
   labs(
     title = "Potentially Bioavailable Nitrogen",
     x = "SSP Scenario",
-    y = "Bioavailable Nitrogen [kg/ha*yr]",
+    y = "Bioavailable Nitrogen [g/m2*yr]",
     fill = "Biome"
   ) +
   scale_fill_manual(

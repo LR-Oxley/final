@@ -457,7 +457,7 @@ library(ggplot2)
 library(dplyr)
 library(tidyr)
 
-df <- read.csv("/Users/laraoxley/Desktop/data/CMIP6_corr/N_asymptotic/N2O/N2O_Tg_2000-2020.csv")
+df <- read.csv("/Users/laraoxley/Desktop/data/CMIP6/final/N2O/N2O_Tg_2000-2020.csv")
 # Long format, separate SSP and Version
 df_long <- df %>%
   pivot_longer(-Year, names_to = "Scenario", values_to = "N2O") %>%
@@ -480,7 +480,7 @@ ssp_colors <- c(
 # Plot
 ggplot(df_wide, aes(x = Year)) +
   geom_ribbon(aes(ymin = P1, ymax = P10, fill = SSP), alpha = 0.25) +
-  geom_line(aes(y = mid, color = SSP), size = 1.2) +
+  geom_line(aes(y = mid, color = SSP), linewidth = 1.2) +
   geom_hline(yintercept = 0.67, linetype = "solid", color = "black") +
   annotate("rect", xmin = min(df$Year), xmax = max(df$Year),
            ymin = 0.07, ymax = 1.3, fill = "grey50", alpha = 0.2) +

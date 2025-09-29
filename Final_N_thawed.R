@@ -1,4 +1,4 @@
-# calculating N(t) = N(t-1) + N(permafrost_release)
+# calculating N(t) = N(t-1) + N(permafrost_release) without N loss
 
 #considering rooting depth of grasses: limit to 2m depth
 library(terra)
@@ -15,6 +15,13 @@ print(total_area)
 plot(N_data)
 # Print the total area (in m²)
 print(N_data)
+
+# amount of N in Pg over panArctic region: 
+N_kg<-N_data * cell_area
+total_N <- global(N_kg, fun = "sum", na.rm = TRUE)$sum
+total_N_Tg<-total_N/10^9
+
+
 plot(ALD[[250]])
 
 # Get latitude and longitude from the grid
@@ -24,7 +31,7 @@ lon <- unique(xFromCell(ALD, 1:ncell(ALD)))
 # Set common extent
 common_extent <- ext(-179.95, 179.95, 30, 90)
 ext(ALD) <- ext(N_data) <- ext(LC) <- common_extent
-
+LC <- resample(LC, N_data, method = "near")
 # Ensure masks are numeric (not logical)
 taiga_mask <- as.numeric(LC %in% c(1,2,3,4,5,8,9))
 tundra_mask <- as.numeric(LC %in% c(6,7,10))
@@ -79,7 +86,7 @@ total_N<-barren_N+wetlands_N+tundra_N+taiga_N
 
 # Compute thawed nitrogen
 thawed_taiga <- compute_thawed_N(ALD, taiga_N, params$taiga['a'], params$taiga['b'], params$taiga['k'])
-
+plot(thawed_taiga[[251]])
 # For tundra, barren, and wetlands: set to NA where ALD < 2
 capped_ALD <- ifel(ALD > 2, 2, ALD)
 
@@ -106,13 +113,15 @@ plot(combined_thawed[[2]])
 # Save combined raster to a NetCDF file
 writeCDF(
   combined_thawed,
-  filename = "/Users/laraoxley/Desktop/data/CMIP6/final/final_results/thawed_total_ssp126_2m_limit.nc",
+  filename = "/Users/laraoxley/Desktop/data/CMIP6/final/final_results/thawed_total_ssp126_2m_limit_nonloss.nc",
   varname = "Thawed_N",
   overwrite = TRUE
 )
 
 plot(thawed_wetlands[[250]])
 plot(combined_thawed[[250]])
+library(terra)
+combined_thawed<- rast("final_results/thawed_total_ssp126_2m_limit_nonloss.nc")
 
 # Compute cell areas for each year
 cell_areas_all_years <- rast(lapply(1:nlyr(combined_thawed), function(i) {
@@ -125,14 +134,14 @@ plot(weighted_thawed_all_years[[250]])
 # Compute total weighted thawed nitrogen (sum over all cells)
 total_weighted_thawed <- global(weighted_thawed_all_years, "sum", na.rm = TRUE)
 total_thawed_Pg <- total_weighted_thawed / 1e12
-
+write.csv(total_thawed_Pg, "/Users/laraoxley/Desktop/data/CMIP6/final/final_results/thawed_total_ssp126_mean_2m_lim_nonloss.csv")
 
 # Compute total area for each year
 total_area_all_years <- global(cell_areas_all_years, "sum", na.rm = TRUE)
 
 # Compute the final weighted average thawed nitrogen (kg N / m²)
 weighted_mean_thawed <- total_weighted_thawed / total_area_all_years
-write.csv(weighted_mean_thawed, "/Users/laraoxley/Desktop/data/CMIP6/final/final_results/weighted_mean_thawed_total_ssp126_mean_2m_lim.csv")
+write.csv(weighted_mean_thawed, "/Users/laraoxley/Desktop/data/CMIP6/final/final_results/weighted_mean_thawed_total_ssp126_mean_2m_lim_nonloss.csv")
 
 plot(1:250, total_area_all_years$sum, type = "l", main = "Total Arctic Area Over Time",
      xlab = "Year", ylab = "Total Area (m²)")
@@ -264,18 +273,94 @@ lines(rep(wetlands_TN, 100), seq(-300, 0, length.out = 100), col = "green", lwd 
 legend("topright", legend = c(names(params), "Wetlands"), col = c(colors, "green"), lwd = 2, lty = c(1, 1, 1, 1))
 
 
+## plot the spatial distribution of the land cover types
 
+library(terra)
+library(here)
+
+LC <- rast("LC_remapnn_corr.nc")
+
+# Ensure masks are numeric (not logical)
+taiga_mask <- as.numeric(LC %in% c(1,2,3,4,5,8,9))
+tundra_mask <- as.numeric(LC %in% c(6,7,10))
+wetlands_mask <- as.numeric(LC == 11)
+other<- as.numeric(LC %in% c(12,13,14))
+barren_mask <- as.numeric(LC %in% c(15,16))
+plot(barren_mask)
+
+####plotting the biomes together in one map
+# Create a new raster where each biome gets a unique value
+biome_mask <- LC
+values(biome_mask) <- NA
+
+# Assign biome codes
+biome_mask[LC %in% c(1,2,3,4,5,8,9)] <- 1  # Taiga
+biome_mask[LC %in% c(6,7,10)]       <- 2  # Tundra
+biome_mask[LC == 11]                <- 3  # Wetlands
+biome_mask[LC %in% c(12,13,14)]     <- 4  # Other
+biome_mask[LC %in% c(15,16)]        <- 5  # Barren
+
+# Define colors
+biome_colors <- c("darkgreen",  # Taiga
+"lightblue",  # Tundra
+"lightgreen",       # Wetlands
+"grey",       # Other
+"tan"         # Barren
+)
+
+biome_labels <- c("Taiga", "Tundra", "Wetlands", "Other", "Barren")
+
+# Convert raster to data frame with coordinates
+biome_df <- as.data.frame(biome_mask, xy = TRUE)
+
+# Suppose the raster has one layer with integer biome IDs
+colnames(biome_df)[3] <- "biome_id"
+# Plot
+biome_labels <- c(
+  "1" = "Taiga",
+  "2" = "Tundra",
+  "3" = "Wetlands",
+  "4" = "Other",
+  "5" = "Barren"
+)
+
+biome_colors <- c("darkgreen",  # Taiga
+                  "lightblue",  # Tundra
+                  "lightgreen",       # Wetlands
+                  "grey",       # Other
+                  "tan"         # Barren
+)
+# Convert biome_id to factor with labels
+biome_df$biome <- factor(
+  biome_df$biome_id,
+  levels = names(biome_labels),
+  labels = biome_labels
+)
+
+ggplot(biome_df) +
+  geom_tile(aes(x = x, y = y, fill = biome)) +
+  scale_fill_manual(values = biome_colors, name = "Biome") +
+  coord_equal() +
+  theme_minimal() +
+  theme(
+    legend.position = "right",   # put legend outside (right)
+    legend.title = element_text(size = 12),
+    legend.text  = element_text(size = 10)
+  ) +
+  labs(title = "Arctic Biomes", x="Longitude", y = "Latitude")
 
 
 
 ##############################################################################################################################
 # no 2m depth limit for graminoid/ grass types
 library(terra)
-setwd("/Users/laraoxley/Desktop/data/CMIP6_corr/N_asymptotic")
+library(here)
+getwd()
 # Load NetCDF files
-ALD <- rast("/Users/laraoxley/Desktop/data/CMIP6_corr/N_asymptotic/mean_ssp126_corr.nc")
-N_data <- rast("/Users/laraoxley/Desktop/data/CMIP6_corr/N_asymptotic/TN_30deg_corr.nc",lyr=1)
-LC <- rast("/Users/laraoxley/Desktop/data/CMIP6_corr/N_asymptotic/LC_remapnn_corr.nc")
+ALD <- rast("final_data/mean_ssp585_corr_new.nc")
+N_data <- rast("final_data/TN_30deg_corr.nc", lyr = 1)
+LC <- rast("final_data/LC_remapnn_corr.nc")
+
 plot(ALD[[2]])
 cell_area<-cellSize(LC, mask=TRUE, lyrs=FALSE, unit="m")
 # Sum all the cell areas (total area of the grid)
@@ -300,7 +385,7 @@ lon <- unique(xFromCell(ALD, 1:ncell(ALD)))
 # Set common extent
 common_extent <- ext(-179.95, 179.95, 30, 90)
 ext(ALD) <- ext(N_data) <- ext(LC) <- common_extent
-
+LC <- resample(LC, N_data, method = "near")  # nearest neighbor for masks
 # Ensure masks are numeric (not logical)
 taiga_mask <- as.numeric(LC %in% c(1,2,3,4,5,8,9))
 tundra_mask <- as.numeric(LC %in% c(6,7,10))
@@ -308,40 +393,6 @@ wetlands_mask <- as.numeric(LC == 11)
 other<- as.numeric(LC %in% c(12,13,14))
 barren_mask <- as.numeric(LC %in% c(15,16))
 plot(barren_mask)
-
-####plotting the biomes together in one map
-# Create a new raster where each biome gets a unique value
-#biome_mask <- LC
-#values(biome_mask) <- NA
-
-# Assign biome codes
-#biome_mask[LC %in% c(1,2,3,4,5,8,9)] <- 1  # Taiga
-#biome_mask[LC %in% c(6,7,10)]       <- 2  # Tundra
-#biome_mask[LC == 11]                <- 3  # Wetlands
-#biome_mask[LC %in% c(12,13,14)]     <- 4  # Other
-#biome_mask[LC %in% c(15,16)]        <- 5  # Barren
-
-# Define colors
-#biome_colors <- c(
-  "darkgreen",  # Taiga
-  "lightblue",  # Tundra
-  "lightgreen",       # Wetlands
-  "grey",       # Other
-  "tan"         # Barren
-)
-
-#biome_labels <- c("Taiga", "Tundra", "Wetlands", "Other", "Barren")
-
-# Plot
-#plot(biome_mask, col = biome_colors, main = "Arctic Biomes", legend = FALSE)
-
-# Add legend
-#legend("bottomleft",
-       legend = biome_labels,
-       fill = biome_colors,
-       bg = "white",
-       cex = 0.9)
-#####
 
 # Land cover parameters
 params <- list(
@@ -380,12 +431,8 @@ thawed_tundra <- compute_thawed_N(ALD, tundra_N, params$tundra['a'], params$tund
 thawed_barren <- compute_thawed_N(ALD, barren_N, params$barren['a'], params$barren['b'], params$barren['k'])
 thawed_wetlands <- (wetlands_N * ALD)
 
-plot(ALD[[1]])
 plot(thawed_taiga[[250]], main = "Thawed Nitrogen: Taiga")
-plot(thawed_tundra[[1]], main = "Thawed Nitrogen: Tundra")
-plot(thawed_barren[[1]], main = "Thawed Nitrogen: Barren")
-plot(thawed_wetlands[[1]], main = "Thawed Nitrogen: Wetlands")
-combined<-thawed_taiga+thawed_tundra+thawed_barren+thawed_wetlands
+
 # Replace NA values with 0
 thawed_taiga[is.na(thawed_taiga)] <- 0
 thawed_tundra[is.na(thawed_tundra)] <- 0
@@ -397,55 +444,41 @@ combined_thawed <- thawed_taiga + thawed_tundra + thawed_barren + thawed_wetland
 
 combined_thawed <- ifel(combined_thawed == 0, NA, combined_thawed)
 plot(combined_thawed[[1]])
-plot()
-# Calculate mean for each layer (year) in the SpatRaster object
-taiga_thawed_N<- global(thawed_taiga, fun = "mean", na.rm = TRUE)
-tundra_thawed_N<- global(thawed_tundra, fun = "mean", na.rm = TRUE)
-barren_thawed_N<- global(thawed_barren, fun = "mean", na.rm = TRUE)
-wetlands_thawed_N<- global(thawed_wetlands, fun = "mean", na.rm = TRUE)
-combined_thawed_N<- global(combined_thawed, fun = "mean", na.rm = TRUE)
-setwd("/Users/laraoxley/Desktop/data/CMIP6_corr/N_asymptotic")
-
+getwd()
 # Save combined raster to a NetCDF file
 writeCDF(
   combined_thawed,
-  "thawed_total_ssp585.nc",
+  "thawed_total_ssp585_new.nc",
   varname = "Thawed_N",
   overwrite = TRUE
 )
 
+# Compute cell areas for each year (different for each layer)
+cell_areas_all_years <- rast(lapply(1:nlyr(combined_thawed), function(i) {
+  cellSize(combined_thawed[[i]], mask = TRUE, unit = "m")
+}))
+plot(cell_areas_all_years[[250]])
+# Compute weighted thawed nitrogen for each year
+weighted_thawed_all_years <- combined_thawed * cell_areas_all_years
+plot(weighted_thawed_all_years[[250]])
+# Compute total weighted thawed nitrogen (sum over all cells) in kg 
+total_weighted_thawed <- global(weighted_thawed_all_years, "sum", na.rm = TRUE)
 
-tempdir()
+total_thawed_Pg <- total_weighted_thawed / 1e12
+write.csv(total_thawed_Pg, "/Users/laraoxley/Desktop/data/CMIP6/final/final_results/thawed_total_ssp585_std_nonloss.csv")
 
-# Save combined raster to a NetCDF file
-writeCDF(
-  thawed_taiga,
-  "thawed_taiga_ssp126.nc",
-  varname = "Thawed_N",
-  overwrite = TRUE
-)
-# Save combined raster to a NetCDF file
-writeCDF(
-  thawed_tundra,
-  "thawed_tundra_ssp126.nc",
-  varname = "Thawed_N",
-  overwrite = TRUE
-)
-# Save combined raster to a NetCDF file
-writeCDF(
-  thawed_wetlands,
-  "thawed_wetlands_ssp126.nc",
-  varname = "Thawed_N",
-  overwrite = TRUE
-)
-# Save combined raster to a NetCDF file
-writeCDF(
-  thawed_barren,
-  "thawed_barren_ssp126.nc",
-  varname = "Thawed_N",
-  overwrite = TRUE
-)
+# Compute total area for each year
+total_area_all_years <- global(cell_areas_all_years, "sum", na.rm = TRUE)
 
+# Compute the final weighted average thawed nitrogen (kg N / m²)
+weighted_mean_thawed <- total_weighted_thawed / total_area_all_years
+write.csv(weighted_mean_thawed, "/Users/laraoxley/Desktop/data/CMIP6/final/final_results/weighted_mean_thawed_total_ssp585_std_nonloss.csv")
+
+
+
+gc()               # clean up R memory
+terra::tmpFiles(remove = TRUE)  # clear terra temp files
+terra::tmpFiles(remove = TRUE, current = TRUE, orphan = TRUE, old = TRUE)
 
 ################################################################################
 

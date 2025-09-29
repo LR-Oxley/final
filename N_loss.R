@@ -102,7 +102,7 @@ library(terra)
 library(here)
 
 # Load NetCDF files
-ALD <- rast("final_data/mean_ssp126_corr.nc")
+ALD <- rast("final_data/mean_ssp585.nc")
 N_data <- rast("final_data/TN_30deg_corr.nc", lyr = 1)
 LC <- rast("final_data/LC_remapnn_corr.nc")
 
@@ -112,6 +112,8 @@ ext(ALD) <- ext(N_data) <- ext(LC) <- common_extent
 LC <- resample(LC, N_data, method = "near")
 crs(N_data)
 crs(LC)
+crs(ALD)
+plot(ALD[[2]])
 # Create masks
 # Masks (no as.numeric!)
 taiga_mask    <- LC %in% c(1,2,3,4,5,8,9)
@@ -126,7 +128,7 @@ params <- list(
   barren = c(a = 0, b = 0.0161, k = 0.016)
 )
 
-# Nitrogen loss parameters
+# define Nitrogen loss parameters
 f_denitrification <- 0.01
 f_runoff <- 0.01
 f_n_loss <- f_denitrification + f_runoff
@@ -222,7 +224,7 @@ plot(combined_thawed[[2]])
 # Save combined raster to a NetCDF file
 writeCDF(
   combined_thawed,
-  filename = "/Users/laraoxley/Desktop/data/CMIP6/final/thawed_total_ssp126_2m_limit.nc",
+  filename = "/Users/laraoxley/Desktop/data/CMIP6/final/thawed_total_2m_nloss_limit_ssp585.nc",
   varname = "Thawed_N",
   overwrite = TRUE
 )
@@ -232,14 +234,14 @@ plot(graminoid_thawed[[2]])
 # Save combined raster to a NetCDF file
 writeCDF(
   graminoid_thawed,
-  filename = "/Users/laraoxley/Desktop/data/CMIP6/final/thawed_graminoids_ssp126_2m_limit.nc",
+  filename = "/Users/laraoxley/Desktop/data/CMIP6/final/thawed_graminoids_2m_limit_nloss_ssp585.nc",
   varname = "Thawed_N",
   overwrite = TRUE
 )
 
 
 library("terra")
-combined_thawed <- rast("thawed_total_ssp126_2m_limit.nc")
+combined_thawed <- rast("thawed_total_2m_nloss_limit_ssp585.nc")
 
 # Compute cell areas for each year
 cell_areas_all_years <- rast(lapply(1:nlyr(combined_thawed), function(i) {
@@ -252,14 +254,14 @@ plot(weighted_thawed_all_years[[250]])
 # Compute total weighted thawed nitrogen (sum over all cells)
 total_weighted_thawed <- global(weighted_thawed_all_years, "sum", na.rm = TRUE)
 total_thawed_Pg <- total_weighted_thawed / 1e12
-write.csv(total_thawed_Pg, "/Users/laraoxley/Desktop/data/CMIP6/final/final_results/thawed_total_mean_2m_lim_Pg_ssp126.csv")
+write.csv(total_thawed_Pg, "/Users/laraoxley/Desktop/data/CMIP6/final/final_results/thawed_total_mean_2m_lim_Pg_nloss_ssp585.csv")
 
 # Compute total area for each year
 total_area_all_years <- global(cell_areas_all_years, "sum", na.rm = TRUE)
 
 # Compute the final weighted average thawed nitrogen (kg N / m²)
 weighted_mean_thawed <- total_weighted_thawed / total_area_all_years
-write.csv(weighted_mean_thawed, "/Users/laraoxley/Desktop/data/CMIP6/final/final_results/weighted_mean_thawed_total_mean_2m_lim_ssp126.csv")
+write.csv(weighted_mean_thawed, "/Users/laraoxley/Desktop/data/CMIP6/final/final_results/weighted_mean_thawed_total_mean_2m_lim_nloss_ssp585.csv")
 
 
 #############################################################################
@@ -282,14 +284,14 @@ total_area_all_years_taiga <- global(cell_areas_all_years, "sum", na.rm = TRUE)
 
 # Compute the final weighted average thawed nitrogen (kg N / m²)
 weighted_mean_thawed_taiga <- total_weighted_thawed_taiga / total_area_all_years_taiga
-write.csv(weighted_mean_thawed_taiga, "/Users/laraoxley/Desktop/data/CMIP6/final/final_results/weighted_mean_thawed_taiga_mean_2m_lim_nloss_ssp126.csv")
+write.csv(weighted_mean_thawed_taiga, "/Users/laraoxley/Desktop/data/CMIP6/final/final_results/weighted_mean_thawed_taiga_mean_2m_lim_nloss_ssp585.csv")
 
 plot(1:251, weighted_mean_thawed_taiga$sum, type = "l", main = "Total Arctic Area Over Time",
      xlab = "Year", ylab = "Total Area (m²)")
 
 
 
-thawed_grasslands <- rast("thawed_graminoids_ssp126_2m_limit.nc")
+thawed_grasslands <- rast("thawed_graminoids_2m_limit_nloss_ssp585.nc")
 
 
 plot(thawed_grasslands[[1]])
@@ -309,4 +311,4 @@ total_area_all_years_grasslands <- global(cell_areas_all_years, "sum", na.rm = T
 
 # Compute the final weighted average thawed nitrogen (kg N / m²)
 weighted_mean_thawed_grasslands <- total_weighted_thawed_grasslands / total_area_all_years_grasslands
-write.csv(weighted_mean_thawed_grasslands, "/Users/laraoxley/Desktop/data/CMIP6/final/final_results/weighted_mean_thawed_grasslands_2m_lim_nloss_ssp126.csv")
+write.csv(weighted_mean_thawed_grasslands, "/Users/laraoxley/Desktop/data/CMIP6/final/final_results/weighted_mean_thawed_grasslands_2m_lim_nloss_ssp585.csv")
